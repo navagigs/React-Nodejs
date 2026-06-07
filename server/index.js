@@ -1,0 +1,1030 @@
+const express = require('express');
+const mysql = require('mysql2');
+const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs'); 
+const bodyParser = require('body-parser');
+const multer = require('multer'); // <-- 1. Import Multer
+const path = require('path');
+const fs = require('fs'); // Untuk menghapus file
+
+const app = express();
+const PORT = 5001; // KITA KUNCI DI PORT 5001
+const JWT_SECRET = 'rahasia_kita_123';
+
+app.use(cors());
+app.use(express.json());
+// Agar bisa membaca data form-data yang rumit
+app.use(bodyParser.urlencoded({ extended: true })); 
+
+// --- 2. KONFIGURASI MULTER (Tempat Simpan & Nama File) ---
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/'); // Simpan di folder 'uploads'
+    },
+    filename: (req, file, cb) => {
+        // Buat nama file unik: timestamp + ekstensi asli
+        // Contoh: 1634567890123.jpg
+        cb(null, Date.now() + path.extname(file.originalname));
+    }
+});
+
+const upload = multer({ storage: storage });
+
+// --- 3. BUKA AKSES FOLDER UPLOADS KE PUBLIK ---
+// Ini penting agar frontend bisa akses gambar via URL: http://localhost:5000/uploads/namafile.jpg
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// --- KONFIGURASI DATABASE ---
+const db = mysql.createConnection({
+    host: 'localhost',
+    user: 'root',
+    password: '',       // Sesuaikan jika ada password
+    database: 'admin_react' // Pastikan nama DB benar
+});
+
+// Cek Koneksi Database
+db.connect((err) => {
+    if (err) {
+        console.error("❌ Database Error:", err.message);
+    } else {
+        console.log("✅ Database Terhubung!");
+    }
+});
+
+// --- API LOGIN ---
+app.post('/api/login', (req, res) => {
+    const { email, password } = req.body;
+    console.log(`Login Request dari: ${email}`); // Cek terminal saat klik login
+
+    const sql = 'SELECT * FROM users WHERE email = ?';
+    db.query(sql, [email], async (err, results) => {
+        if (err) return res.status(500).json(err);
+        if (results.length === 0) return res.status(404).json({ message: 'User tidak ditemukan' });
+
+        const user = results[0];
+
+        // LOGIKA PASSWORD (PILIH SALAH SATU):
+        
+        // OPSI 1: Jika password di database belum di-hash (tulisan biasa 123456)
+        const isMatch = (password === user.password); 
+
+        // OPSI 2: Jika password sudah di-hash pakai bcrypt (hapus // di bawah jika pakai ini)
+        // const isMatch = await bcrypt.compare(password, user.password);
+
+        if (!isMatch) return res.status(401).json({ message: 'Password salah' });
+
+        const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '1d' });
+        res.json({ token, user: { name: user.name, email: user.email } });
+    });
+});
+
+// --- API DASHBOARD (GET DATA) ---
+app.get('/api/users', (req, res) => {
+    db.query('SELECT * FROM users', (err, results) => {
+        if (err) return res.status(500).json(err);
+        res.json(results);
+    });
+});
+
+ // 1. GET (Ambil Semua Data) - Tetap sama karena menggunakan SELECT *
+ app.get('/api/portfolio', (req, res) => {
+    // Menggabungkan tabel portfolio dengan tabel clients berdasarkan ID client
+    // Gantilah p.*, c.name AS client_name sesuai dengan nama kolom asli di database Anda
+    const sql = `
+        SELECT 
+            p.*, 
+            c.name AS client_name,
+            c.address AS client_location
+        FROM portfolio p
+        LEFT JOIN client c ON p.client_id = c.id
+        ORDER BY p.id DESC
+    `;
+    
+    db.query(sql, (err, result) => {
+        if (err) {
+            console.error("Error fetching portfolio with client relation:", err);
+            return res.status(500).json({ error: "Database error", details: err });
+        }
+        return res.json(result);
+    });
+});
+
+// 2. POST (Tambah Data Baru + Kolom Baru + GAMBAR)
+app.post('/api/portfolio', upload.single('image'), (req, res) => {
+    // Destructuring variabel baru dari req.body
+    const { 
+        title, description, client_id,
+        portfolio_value, project_name, contract_number, 
+        contract_year, contract_start_date, contract_end_date 
+    } = req.body;
+    
+    const imageFilename = req.file ? req.file.filename : null; 
+
+    // Query diupdate sesuai dengan susunan kolom baru di database
+    const sql = `INSERT INTO portfolio (
+        title, description, client_id, image, 
+        portfolio_value, project_name, contract_number, 
+        contract_year, contract_start_date, contract_end_date
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    
+    // Pastikan urutan array params ini sama persis dengan urutan kolom di atas!
+    const params = [
+        title, description, client_id, imageFilename,
+        portfolio_value, project_name, contract_number, 
+        contract_year, contract_start_date, contract_end_date
+    ];
+
+    db.query(sql, params, (err, result) => {
+        if (err) return res.status(500).json(err);
+        return res.json({ message: "Success", id: result.insertId });
+    });
+});
+
+// 3. PUT (Update Data + Kolom Baru + GAMBAR OPTIONAL)
+app.put('/api/portfolio/:id', upload.single('image'), (req, res) => {
+    const { 
+        title, client_id, description,
+        portfolio_value, project_name, contract_number, 
+        contract_year, contract_start_date, contract_end_date 
+    } = req.body; 
+    const id = req.params.id;
+    
+    let sql = "";
+    let params = [];
+
+    // Cek apakah user mengupload gambar BARU? 
+    if (req.file) {
+        // Update dengan gambar baru + data teks baru
+        sql = `UPDATE portfolio SET 
+            title=?, client_id=?, description=?, image=?, 
+            portfolio_value=?, project_name=?, contract_number=?, 
+            contract_year=?, contract_start_date=?, contract_end_date=? 
+            WHERE id=?`;
+        
+        params = [
+            title, client_id, description, req.file.filename, 
+            portfolio_value, project_name, contract_number, 
+            contract_year, contract_start_date, contract_end_date, 
+            id
+        ];
+    } else {
+        // Update data teks SAJA (gambar lama tetap aman)
+        sql = `UPDATE portfolio SET 
+            title=?, client_id=?, description=?, 
+            portfolio_value=?, project_name=?, contract_number=?, 
+            contract_year=?, contract_start_date=?, contract_end_date=? 
+            WHERE id=?`;
+        
+        params = [
+            title, client_id, description, 
+            portfolio_value, project_name, contract_number, 
+            contract_year, contract_start_date, contract_end_date, 
+            id
+        ];
+    }
+
+    db.query(sql, params, (err, result) => {
+        if (err) return res.status(500).json(err);
+        return res.json({ message: "Updated Successfully" });
+    });
+});
+
+// 4. DELETE (Hapus Data & File Fisik) - Tetap sama karena berbasis ID target
+app.delete('/api/portfolio/:id', (req, res) => {
+    const id = req.params.id;
+    
+    db.query("SELECT image FROM portfolio WHERE id = ?", [id], (err, results) => {
+        if (err) return res.status(500).json(err);
+        
+        const imageToDelete = results[0]?.image;
+
+        db.query("DELETE FROM portfolio WHERE id=?", [id], (err, result) => {
+            if (err) return res.status(500).json(err);
+
+            if (imageToDelete) {
+                const filePath = path.join(__dirname, 'uploads', imageToDelete);
+                fs.unlink(filePath, (unlinkErr) => {
+                    if (unlinkErr) console.error("Gagal menghapus file gambar lama:", unlinkErr);
+                });
+            }
+            return res.json({ message: "Deleted Successfully" });
+        });
+    });
+});
+
+
+// 1. GET (Ambil Semua Data Client)
+app.get('/api/clients', (req, res) => {
+    const sql = "SELECT * FROM client ORDER BY id DESC";
+    db.query(sql, (err, result) => {
+        if (err) return res.status(500).json(err);
+        return res.json(result);
+    });
+});
+
+// 2. POST (TAMBAH CLIENT BARU)
+app.post('/api/clients', upload.single('image'), (req, res) => {
+    const { name, address } = req.body;
+    const image = req.file ? req.file.filename : null;
+
+    const sql = "INSERT INTO client (name, address, image) VALUES (?, ?, ?)";
+    
+    db.query(sql, [name, address, image], (err, result) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).json({ message: "Database Error" });
+        }
+        return res.status(201).json({ message: "Client created", id: result.insertId });
+    });
+});
+
+// 3. PUT (UPDATE CLIENT)
+app.put('/api/clients/:id', upload.single('image'), (req, res) => {
+    const id = req.params.id;
+    const { name, address } = req.body;
+    let newImage = req.file ? req.file.filename : null;
+
+    // Langkah 1: Jika ada gambar baru, hapus gambar lama dulu (Opsional tapi disarankan)
+    if (newImage) {
+        const getOldImageSql = "SELECT image FROM client WHERE id = ?";
+        db.query(getOldImageSql, [id], (err, results) => {
+            if (!err && results.length > 0 && results[0].image) {
+                const oldImagePath = path.join(__dirname, 'uploads', results[0].image);
+                if (fs.existsSync(oldImagePath)) {
+                    fs.unlinkSync(oldImagePath); // Hapus file lama
+                }
+            }
+        });
+    }
+
+    // Langkah 2: Query Update
+    let sql = "UPDATE client SET name=?, address=? WHERE id=?";
+    let params = [name, address, id];
+
+    // Jika user upload gambar baru, update kolom image juga
+    if (newImage) {
+        sql = "UPDATE client SET name=?, address=?, image=? WHERE id=?";
+        params = [name, address, newImage, id];
+    }
+
+    db.query(sql, params, (err, result) => {
+        if (err) return res.status(500).json(err);
+        return res.json({ message: "Client updated" });
+    });
+});
+
+// 4. DELETE (HAPUS CLIENT)
+app.delete('/api/clients/:id', (req, res) => {
+    const id = req.params.id;
+
+    // Langkah 1: Ambil nama file gambar sebelum menghapus data di DB
+    const getSql = "SELECT image FROM client WHERE id = ?";
+    
+    db.query(getSql, [id], (err, results) => {
+        if (err) return res.status(500).json(err);
+        if (results.length === 0) return res.status(404).json({ message: "Client not found" });
+
+        const imageFile = results[0].image;
+
+        // Langkah 2: Hapus data dari Database
+        const deleteSql = "DELETE FROM client WHERE id = ?";
+        db.query(deleteSql, [id], (err, result) => {
+            if (err) return res.status(500).json(err);
+
+            // Langkah 3: Jika berhasil hapus DB, hapus file gambar dari folder 'uploads'
+            if (imageFile) {
+                const filePath = path.join(__dirname, 'uploads', imageFile);
+                fs.unlink(filePath, (err) => {
+                    if (err) console.error("Gagal menghapus file gambar:", err);
+                });
+            }
+
+            return res.json({ message: "Client deleted successfully" });
+        });
+    });
+});
+
+// ==========================================
+// API KATEGORI BERITA
+// ==========================================
+
+// GET Categories
+app.get('/api/categories', (req, res) => {
+    db.query("SELECT * FROM categories ORDER BY name ASC", (err, result) => {
+        if (err) return res.status(500).json(err);
+        res.json(result);
+    });
+});
+
+// POST Category
+app.post('/api/categories', (req, res) => {
+    const { name } = req.body;
+    db.query("INSERT INTO categories (name) VALUES (?)", [name], (err, result) => {
+        if (err) return res.status(500).json(err);
+        res.json({ message: "Category added", id: result.insertId });
+    });
+});
+
+// PUT Category
+app.put('/api/categories/:id', (req, res) => {
+    const { name } = req.body;
+    db.query("UPDATE categories SET name=? WHERE id=?", [name, req.params.id], (err, result) => {
+        if (err) return res.status(500).json(err);
+        res.json({ message: "Category updated" });
+    });
+});
+
+// DELETE Category
+app.delete('/api/categories/:id', (req, res) => {
+    db.query("DELETE FROM categories WHERE id=?", [req.params.id], (err, result) => {
+        if (err) return res.status(500).json(err);
+        res.json({ message: "Category deleted" });
+    });
+});
+
+// ==========================================
+// API BERITA (NEWS)
+// ==========================================
+
+// GET News (Join dengan Category)
+app.get('/api/news', (req, res) => {
+    const sql = `
+        SELECT news.*, categories.name as category_name 
+        FROM news 
+        LEFT JOIN categories ON news.category_id = categories.id 
+        ORDER BY news.created_at DESC
+    `;
+    db.query(sql, (err, result) => {
+        if (err) return res.status(500).json(err);
+        res.json(result);
+    });
+});
+
+// POST News
+app.post('/api/news', upload.single('image'), (req, res) => {
+    const { title, content, category_id } = req.body;
+    const image = req.file ? req.file.filename : null;
+    
+    const sql = "INSERT INTO news (title, content, category_id, image) VALUES (?, ?, ?, ?)";
+    db.query(sql, [title, content, category_id, image], (err, result) => {
+        if (err) return res.status(500).json(err);
+        res.json({ message: "News created", id: result.insertId });
+    });
+});
+
+app.post('/api/news/:id', upload.single('image'), (req, res) => {
+    const id = req.params.id;
+    const { title, content, category_id } = req.body;
+    const newImage = req.file ? req.file.filename : null;
+
+    db.query("SELECT image FROM news WHERE id=?", [id], (err, rows) => {
+        if (err) return res.status(500).json(err);
+        if (rows.length === 0) return res.status(404).json({ message: 'News not found' });
+
+        const oldImage = rows[0].image;
+
+        let sql, params;
+        if (newImage) {
+            sql = "UPDATE news SET title=?, content=?, category_id=?, image=? WHERE id=?";
+            params = [title, content, category_id, newImage, id];
+        } else {
+            sql = "UPDATE news SET title=?, content=?, category_id=? WHERE id=?";
+            params = [title, content, category_id, id];
+        }
+
+        db.query(sql, params, (err) => {
+            if (err) return res.status(500).json(err);
+
+            // Hapus gambar lama SETELAH update sukses
+            if (newImage && oldImage) {
+                const oldPath = path.join(__dirname, 'uploads', oldImage);
+                if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+            }
+
+            res.json({ message: 'News updated successfully' });
+        });
+    });
+});
+
+
+
+// DELETE News
+app.delete('/api/news/:id', (req, res) => {
+    const id = req.params.id;
+    db.query("SELECT image FROM news WHERE id=?", [id], (err, results) => {
+        if (err) return res.status(500).json(err);
+        
+        // Hapus data DB
+        db.query("DELETE FROM news WHERE id=?", [id], (err) => {
+            if (err) return res.status(500).json(err);
+            
+            // Hapus File
+            if (results.length > 0 && results[0].image) {
+                const filePath = path.join(__dirname, 'uploads', results[0].image);
+                if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            }
+            res.json({ message: "News deleted" });
+        });
+    });
+});
+
+// ==========================================
+//          API LOGIC FOR LETTERS (FIXED)
+// ==========================================
+
+// 5. GET: Hitung total surat untuk keperluan nomor urut otomatis
+app.get('/api/letters/next-number', (req, res) => {
+    const sql = "SELECT COUNT(*) AS total FROM letters";
+    db.query(sql, (err, result) => {
+        if (err) return res.status(500).json(err);
+        
+        const nextCount = (result[0]?.total || 0) + 1;
+        return res.json({ nextCount });
+    });
+});
+
+// 1. GET (Ambil Semua Data Surat - Diurutkan dari yang terbaru) 
+app.get('/api/letters', (req, res) => {
+    const sql = `
+        SELECT letters.*, client.name AS client_name 
+        FROM letters 
+        LEFT JOIN client ON letters.client_id = client.id 
+        ORDER BY letters.id DESC
+    `;
+    db.query(sql, (err, result) => {
+        if (err) return res.status(500).json(err);
+        return res.json(result);
+    });
+});
+
+// 2. POST (Tambah Surat Baru - Attachment berupa Note/Teks Biasa)
+// PERBAIKAN: Menghapus 'upload.single('attachment')' karena data dikirim via JSON
+app.post('/api/letters', (req, res) => {
+    const { 
+        client_id, 
+        letter_number, 
+        letter_type, 
+        subject,
+        letter_location, 
+        letter_date, 
+        recipient, 
+        description, 
+        description_closing,
+        signer_name, 
+        signer_position,
+        attachment // Sekarang langsung menangkap string catatan dari req.body
+    } = req.body;
+
+    const sql = `INSERT INTO letters 
+        (client_id, letter_number, letter_type, subject, letter_location, letter_date, recipient, description, description_closing, signer_name, signer_position, attachment) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        
+    const params = [
+        client_id, 
+        letter_number, 
+        letter_type, 
+        subject,
+        letter_location, 
+        letter_date, 
+        recipient, 
+        description, 
+        description_closing,
+        signer_name, 
+        signer_position, 
+        attachment || null // Jika kosong, simpan sebagai null
+    ];
+
+    db.query(sql, params, (err, result) => {
+        if (err) return res.status(500).json(err);
+        return res.json({ message: "Success", id: result.insertId });
+    });
+});
+
+// 3. PUT (Update Data Surat - Attachment berupa Note/Teks Biasa)
+// PERBAIKAN: Menghapus 'upload.single('attachment')' dan menyederhanakan query logic
+app.put('/api/letters/:id', (req, res) => {
+    const id = req.params.id;
+    const { 
+        client_id, 
+        letter_number, 
+        letter_type, 
+        subject,
+        letter_location, 
+        letter_date, 
+        recipient, 
+        description, 
+        description_closing,
+        signer_name, 
+        signer_position,
+        attachment // Menangkap pembaruan teks catatan
+    } = req.body; 
+
+    const sql = `UPDATE letters SET 
+        client_id=?, letter_number=?, letter_type=?, subject=?, letter_location=?, 
+        letter_date=?, recipient=?, description=?, description_closing=?, signer_name=?, 
+        signer_position=?, attachment=? 
+        WHERE id=?`;
+        
+    const params = [
+        client_id, 
+        letter_number, 
+        letter_type, 
+        subject,
+        letter_location, 
+        letter_date, 
+        recipient, 
+        description, 
+        description_closing,
+        signer_name, 
+        signer_position, 
+        attachment || null,
+        id
+    ];
+
+    db.query(sql, params, (err, result) => {
+        if (err) return res.status(500).json(err);
+        return res.json({ message: "Updated Successfully" });
+    });
+});
+
+// 4. DELETE (Hapus Data Surat)
+// PERBAIKAN: Karena attachment bukan file fisik lagi, langsung delete baris database tanpa menghapus file di storage
+app.delete('/api/letters/:id', (req, res) => {
+    const id = req.params.id;
+    
+    const sql = "DELETE FROM letters WHERE id=?";
+    db.query(sql, [id], (err, result) => {
+        if (err) return res.status(500).json(err);
+        return res.json({ message: "Deleted Successfully" });
+    });
+});
+
+
+// =========================================================================
+// 1. GET - Mengambil Semua Data Surat khusus INVOICE + Array Detail Itemnya
+// =========================================================================
+// =========================================================================
+// 1. GET - Mengambil SEMUA Data Surat (GENERAL & INVOICE) beserta Itemnya
+// =========================================================================
+app.get('/api/letters/invoice', (req, res) => {
+    // Ambil SEMUA surat terlebih dahulu agar dijamin muncul di list React
+    const sqlLetters = `
+        SELECT l.*, c.name AS client_name, c.address AS client_address 
+        FROM letters l
+        LEFT JOIN client c ON l.client_id = c.id 
+        ORDER BY l.id DESC
+    `;
+
+    db.query(sqlLetters, (err, letters) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        if (!letters || letters.length === 0) return res.json([]);
+
+        // Ambil SEMUA item invoice untuk digabungkan di memori Node.js
+        const sqlItems = `SELECT id, letter_id, item_name, amount FROM invoice_items`;
+        
+        db.query(sqlItems, (err, items) => {
+            if (err) return res.status(500).json({ success: false, error: err.message });
+
+            // Kelompokkan item berdasarkan letter_id
+            const itemsMap = {};
+            if (items && items.length > 0) {
+                items.forEach(item => {
+                    if (!itemsMap[item.letter_id]) {
+                        itemsMap[item.letter_id] = [];
+                    }
+                    itemsMap[item.letter_id].push({
+                        id: item.id,
+                        item_name: item.item_name,
+                        amount: item.amount
+                    });
+                });
+            }
+
+            // Gabungkan item ke suratnya masing-masing
+            const result = letters.map(letter => {
+                // Pastikan jika tipenya kosong/null di database, dibaca sebagai GENERAL
+                let type = letter.letter_type ? letter.letter_type.toUpperCase() : 'GENERAL';
+                
+                return {
+                    id: letter.id,
+                    client_id: letter.client_id,
+                    client_name: letter.client_name || 'Klien Tidak Diketahui',
+                    client_address: letter.client_address || 'Di Tempat',
+                    letter_number: letter.letter_number,
+                    letter_type: type, 
+                    subject: letter.subject || '',
+                    letter_location: letter.letter_location || '',
+                    letter_date: letter.letter_date,
+                    recipient: letter.recipient || '',
+                    description: letter.description || '',          
+                    description_closing: letter.description_closing || '',  
+                    signer_name: letter.signer_name || '',
+                    signer_position: letter.signer_position || '',
+                    attachment: letter.attachment || '',
+                    // Hanya pasang array rincian jika bertipe INVOICE
+                    invoice_items: type === 'INVOICE' ? (itemsMap[letter.id] || []) : []
+                };
+            });
+
+            return res.json(result);
+        });
+    });
+});
+
+// =========================================================================
+// 2. POST - Menyimpan Data Invoice Baru beserta List Item Rinciannya
+// =========================================================================
+app.post('/api/letters/invoice', (req, res) => {
+    const { 
+        client_id, letter_number, letter_type, subject, letter_location, letter_date, 
+        recipient, description, description_closing, signer_name, signer_position, attachment, invoice_items 
+    } = req.body;
+
+    // Default ke 'INVOICE' jika frontend lupa mengirim tipe data surat
+    const targetType = letter_type || 'INVOICE';
+
+    db.beginTransaction((err) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+
+        // PERBAIKAN: Nilai ketiga disesuaikan secara dinamis menggunakan targetType
+        const sqlLetter = `INSERT INTO letters 
+            (client_id, letter_number, letter_type, subject, letter_location, letter_date, recipient, description, description_closing, signer_name, signer_position, attachment) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        
+        db.query(sqlLetter, [client_id, letter_number, targetType, subject, letter_location, letter_date, recipient, description, description_closing, signer_name, signer_position, attachment], (err, result) => {
+            if (err) {
+                return db.rollback(() => res.status(500).json({ success: false, error: "Gagal simpan letters: " + err.message }));
+            }
+
+            const letterId = result.insertId;
+
+            // Simpan item ke tabel anak invoice_items jika ada rincian tabelnya
+            if (invoice_items && invoice_items.length > 0) {
+                const sqlItems = `INSERT INTO invoice_items (letter_id, item_name, amount) VALUES ?`;
+                
+                const values = invoice_items
+                    .filter(item => item && item.item_name && String(item.item_name).trim() !== "") 
+                    .map(item => [letterId, item.item_name, parseFloat(item.amount) || 0]);
+
+                if (values.length === 0) {
+                    return db.commit((err) => {
+                        if (err) return db.rollback(() => res.status(500).json({ success: false }));
+                        return res.json({ success: true, message: "Invoice disimpan tanpa list item." });
+                    });
+                }
+
+                db.query(sqlItems, [values], (err) => {
+                    if (err) {
+                        return db.rollback(() => res.status(500).json({ success: false, error: "Gagal menyimpan list item: " + err.message }));
+                    }
+                    
+                    db.commit((err) => {
+                        if (err) return db.rollback(() => res.status(500).json({ success: false }));
+                        return res.json({ success: true, message: "Dokumen Invoice & List Item sukses diarsipkan!" });
+                    });
+                });
+            } else {
+                db.commit((err) => {
+                    if (err) return db.rollback(() => res.status(500).json({ success: false }));
+                    return res.json({ success: true, message: "Invoice tanpa detail item berhasil disimpan." });
+                });
+            }
+        });
+    });
+});
+
+// =========================================================================
+// 3. PUT - Memperbarui (Edit) Data Surat / Invoice Terpilih
+// =========================================================================
+app.put('/api/letters/invoice/:id', (req, res) => {
+    const { id } = req.params; 
+    const { 
+        client_id, letter_number, letter_type, subject, letter_location, letter_date, 
+        recipient, description, description_closing, signer_name, signer_position, attachment, invoice_items 
+    } = req.body;
+
+    const targetType = letter_type || 'INVOICE';
+
+    db.beginTransaction((err) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+
+        // PERBAIKAN: Menambahkan penyetelan dinamis 'letter_type = ?' agar saat mengedit, tipenya tidak otomatis tertimpa jadi invoice
+        const sqlUpdateLetter = `UPDATE letters SET 
+            client_id = ?, letter_number = ?, letter_type = ?, subject = ?, letter_location = ?, letter_date = ?, 
+            recipient = ?, description = ?, description_closing = ?, signer_name = ?, signer_position = ?, attachment = ?
+            WHERE id = ?`;
+
+        db.query(sqlUpdateLetter, [client_id, letter_number, targetType, subject, letter_location, letter_date, recipient, description, description_closing, signer_name, signer_position, attachment, id], (err) => {
+            if (err) {
+                return db.rollback(() => res.status(500).json({ success: false, error: "Gagal update letters: " + err.message }));
+            }
+
+            // Bersihkan item rincian lama terlebih dahulu
+            const sqlDeleteItems = `DELETE FROM invoice_items WHERE letter_id = ?`;
+            
+            db.query(sqlDeleteItems, [id], (err) => {
+                if (err) {
+                    return db.rollback(() => res.status(500).json({ success: false, error: "Gagal membersihkan item lama: " + err.message }));
+                }
+
+                // Proses masukkan kembali rincian item jika data barunya dikirim dan tipenya adalah INVOICE
+                if (targetType === 'INVOICE' && invoice_items && invoice_items.length > 0) {
+                    const sqlInsertItems = `INSERT INTO invoice_items (letter_id, item_name, amount) VALUES ?`;
+                    
+                    const bulkValues = invoice_items
+                        .filter(item => item && item.item_name && String(item.item_name).trim() !== "")
+                        .map(item => [id, item.item_name, parseFloat(item.amount) || 0]);
+
+                    if (bulkValues.length === 0) {
+                        return db.commit((err) => {
+                            if (err) return db.rollback(() => res.status(500).json({ success: false }));
+                            return res.json({ success: true, message: "Invoice diperbarui tanpa detail item." });
+                        });
+                    }
+
+                    db.query(sqlInsertItems, [bulkValues], (err) => {
+                        if (err) {
+                            return db.rollback(() => res.status(500).json({ success: false, error: "Gagal menyimpan item baru: " + err.message }));
+                        }
+
+                        db.commit((err) => {
+                            if (err) return db.rollback(() => res.status(500).json({ success: false }));
+                            return res.json({ success: true, message: "Data Invoice & Rincian Item sukses diperbarui!" });
+                        });
+                    });
+                } else {
+                    // Jika bertipe GENERAL atau tidak ada item rincian dikirim
+                    db.commit((err) => {
+                        if (err) return db.rollback(() => res.status(500).json({ success: false }));
+                        return res.json({ success: true, message: "Data Surat berhasil diperbarui!" });
+                    });
+                }
+            });
+        });
+    });
+});
+
+// =========================================================================
+// 4. POST - Menyimpan Surat Umum (GENERAL) Baru
+// =========================================================================
+app.post('/api/letters/general', (req, res) => {
+    const { 
+        client_id, letter_number, subject, letter_location, 
+        letter_date, recipient, description, signer_name, signer_position, attachment 
+    } = req.body;
+
+    const sql = `INSERT INTO letters 
+        (client_id, letter_number, letter_type, subject, letter_location, letter_date, recipient, description, signer_name, signer_position, attachment) 
+        VALUES (?, ?, 'GENERAL', ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+    db.query(sql, [client_id, letter_number, subject, letter_location, letter_date, recipient, description, signer_name, signer_position, attachment], (err, result) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        return res.json({ success: true, message: "Surat Umum berhasil disimpan!", id: result.insertId });
+    });
+});
+
+// =========================================================================
+// 5. PUT - Memperbarui (Edit) Khusus Surat Umum Jalur Cadangan Frontend
+// =========================================================================
+app.put('/api/letters/general/:id', (req, res) => {
+    const { id } = req.params;
+    const { 
+        client_id, letter_number, subject, letter_location, 
+        letter_date, recipient, description, signer_name, signer_position, attachment 
+    } = req.body;
+
+    const sql = `UPDATE letters SET 
+        client_id = ?, letter_number = ?, letter_type = 'GENERAL', subject = ?, letter_location = ?, 
+        letter_date = ?, recipient = ?, description = ?, signer_name = ?, signer_position = ?, attachment = ?
+        WHERE id = ?`;
+
+    db.query(sql, [client_id, letter_number, subject, letter_location, letter_date, recipient, description, signer_name, signer_position, attachment, id], (err) => {
+        if (err) return res.status(500).json({ success: false, error: err.message });
+        return res.json({ success: true, message: "Data Surat Umum berhasil diupdate!" });
+    });
+});
+
+// --- API MENU MANAGEMENT (CRUD menu) ---
+
+// 1. READ ALL (GET DATA)
+app.get('/api/menus', (req, res) => {
+    // Ambil semua data menu diurutkan berdasarkan urutan menu
+    const sql = 'SELECT * FROM menu ORDER BY menu_order ASC';
+    
+    db.query(sql, (err, result) => {
+        if (err) return res.status(500).json(err);
+        
+        const parents = [];
+        const children = [];
+
+        result.forEach(item => {
+            // REVISI: Menggunakan properti 'subs' agar langsung dikenali oleh React frontend
+            if (item.menu_id === 1) {
+                parents.push({ ...item, subs: [] });
+            } else if (item.parent_id === 1 || !item.parent_id) {
+                parents.push({ ...item, subs: [] });
+            } else {
+                children.push(item);
+            }
+        });
+
+        // Masukkan setiap child ke parent_id yang cocok
+        children.forEach(child => {
+            const parent = parents.find(p => p.menu_id === child.parent_id);
+            if (parent) {
+                parent.subs.push(child); // REVISI: ke 'subs'
+            } else {
+                parents.push({ ...child, subs: [] }); // REVISI: ke 'subs'
+            }
+        });
+
+        // Urutkan kembali parent berdasarkan menu_order asli database
+        parents.sort((a, b) => a.menu_order - b.menu_order);
+
+        return res.json(parents);
+    });
+});
+
+// 2. CREATE (POST DATA)
+app.post('/api/menus', (req, res) => {
+    const {
+        parent_id, title, url, description, menu_order, type,
+        is_view, is_create, is_edit, is_delete, is_export, 
+        is_duplicate, is_unlock, is_active, class_active, icon
+    } = req.body;
+
+    const query = `
+        INSERT INTO menu 
+        (parent_id, title, url, description, menu_order, type, is_view, is_create, is_edit, is_delete, is_export, is_duplicate, is_unlock, is_active, class_active, icon) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const values = [
+        parent_id || null, title, url || null, description || null, menu_order || 0, type || null,
+        is_view || 'N', is_create || 'N', is_edit || 'N', is_delete || 'N', is_export || 'N',
+        is_duplicate || 'N', is_unlock || 'N', is_active || 1, class_active || null, icon || null
+    ];
+
+    db.query(query, values, (err, results) => {
+        if (err) return res.status(500).json(err);
+        res.json({ message: 'Menu berhasil ditambahkan', menu_id: results.insertId });
+    });
+});
+
+// 3. UPDATE (PUT DATA)
+app.put('/api/menus/:id', (req, res) => {
+    const { id } = req.params;
+    const {
+        parent_id, title, url, description, menu_order, type,
+        is_view, is_create, is_edit, is_delete, is_export, 
+        is_duplicate, is_unlock, is_active, class_active, icon
+    } = req.body;
+
+    const query = `
+        UPDATE menu SET 
+        parent_id = ?, title = ?, url = ?, description = ?, menu_order = ?, type = ?, 
+        is_view = ?, is_create = ?, is_edit = ?, is_delete = ?, is_export = ?, 
+        is_duplicate = ?, is_unlock = ?, is_active = ?, class_active = ?, icon = ?
+        WHERE menu_id = ?
+    `;
+
+    const values = [
+        parent_id || null, title, url || null, description || null, menu_order, type || null,
+        is_view, is_create, is_edit, is_delete, is_export, is_duplicate, is_unlock, is_active,
+        class_active || null, icon || null, id
+    ];
+
+    db.query(query, values, (err, results) => {
+        if (err) return res.status(500).json(err);
+        res.json({ message: 'Menu berhasil diperbarui' });
+    });
+});
+
+// 4. DELETE (DELETE DATA)
+app.delete('/api/menus/:id', (req, res) => {
+    const { id } = req.params;
+    const query = 'DELETE FROM menu WHERE menu_id = ?';
+
+    db.query(query, [id], (err, results) => {
+        if (err) return res.status(500).json(err);
+        res.json({ message: 'Menu berhasil dihapus' });
+    });
+});
+
+// ==========================================
+// API PROJECT DOCUMENTS (CRUD POLA SERAGAM)
+// ==========================================
+
+// 1. GET (Ambil Semua Data Dokumen)
+app.get('/api/project-documents', (req, res) => {
+    const sql = "SELECT * FROM project_documents ORDER BY id DESC";
+    db.query(sql, (err, result) => {
+        if (err) return res.status(500).json(err);
+        return res.json(result);
+    });
+});
+
+// 2. GET BY PROJECT ID (Ambil dokumen berdasarkan id project induknya)
+app.get('/api/project-documents/project/:project_id', (req, res) => {
+    const sql = "SELECT * FROM project_documents WHERE project_id = ?";
+    db.query(sql, [req.params.project_id], (err, result) => {
+        if (err) return res.status(500).json(err);
+        if (result.length === 0) return res.status(404).json({ message: "Data tidak ditemukan" });
+        return res.json(result[0]);
+    });
+});
+
+// 3. POST (Tambah Data Dokumen Baru)
+app.post('/api/project-documents', (req, res) => {
+    const {
+        project_id, location,
+        inspection_date, inspection_officer_name_1, inspection_officer_role_1, inspection_officer_name_2, inspection_officer_role_2, inspection_description,
+        progress_date, progress_officer_name_1, progress_officer_role_1, progress_officer_name_2, progress_officer_role_2, progress_description,
+        handover_date, handover_officer_name_1, handover_officer_role_1, handover_officer_name_2, handover_officer_role_2, handover_description, company_1, company_2, progress_status, handover_status
+    } = req.body;
+
+    const sql = `INSERT INTO project_documents (
+        project_id, location,
+        inspection_date, inspection_officer_name_1, inspection_officer_role_1, inspection_officer_name_2, inspection_officer_role_2, inspection_description,
+        progress_date, progress_officer_name_1, progress_officer_role_1, progress_officer_name_2, progress_officer_role_2, progress_description,
+        handover_date, handover_officer_name_1, handover_officer_role_1, handover_officer_name_2, handover_officer_role_2, handover_description, company_1, company_2, progress_status, handover_status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+    const params = [
+        project_id, location,
+        inspection_date ? inspection_date.split('T')[0] : null, inspection_officer_name_1, inspection_officer_role_1, inspection_officer_name_2, inspection_officer_role_2, inspection_description,
+        progress_date ? progress_date.split('T')[0] : null, progress_officer_name_1, progress_officer_role_1, progress_officer_name_2, progress_officer_role_2, progress_description,
+        handover_date ? handover_date.split('T')[0] : null, handover_officer_name_1, handover_officer_role_1, handover_officer_name_2, handover_officer_role_2, handover_description, company_1, company_2, progress_status, handover_status
+    ];
+
+    db.query(sql, params, (err, result) => {
+        if (err) return res.status(500).json(err);
+        return res.json({ message: "Success", id: result.insertId });
+    });
+});
+
+// 4. PUT (Update Data Dokumen Berdasarkan ID)
+app.put('/api/project-documents/:id', (req, res) => {
+    const {
+        location,
+        inspection_date, inspection_officer_name_1, inspection_officer_role_1, inspection_officer_name_2, inspection_officer_role_2, inspection_description,
+        progress_date, progress_officer_name_1, progress_officer_role_1, progress_officer_name_2, progress_officer_role_2, progress_description,
+        handover_date, handover_officer_name_1, handover_officer_role_1, handover_officer_name_2, handover_officer_role_2, handover_description, company_1, company_2, progress_status, handover_status
+    } = req.body;
+    const id = req.params.id;
+
+    const sql = `UPDATE project_documents SET 
+        location=?, 
+        inspection_date=?, inspection_officer_name_1=?, inspection_officer_role_1=?, inspection_officer_name_2=?, inspection_officer_role_2=?, inspection_description=?,
+        progress_date=?, progress_officer_name_1=?, progress_officer_role_1=?, progress_officer_name_2=?, progress_officer_role_2=?, progress_description=?,
+        handover_date=?, handover_officer_name_1=?, handover_officer_role_1=?, handover_officer_name_2=?, handover_officer_role_2=?, handover_description=?, company_1=?, company_2=?, progress_status=?, handover_status=? 
+        WHERE id=?`;
+
+    const params = [
+        location,
+        inspection_date ? inspection_date.split('T')[0] : null, inspection_officer_name_1, inspection_officer_role_1, inspection_officer_name_2, inspection_officer_role_2, inspection_description,
+        progress_date ? progress_date.split('T')[0] : null, progress_officer_name_1, progress_officer_role_1, progress_officer_name_2, progress_officer_role_2, progress_description,
+        handover_date ? handover_date.split('T')[0] : null, handover_officer_name_1, handover_officer_role_1, handover_officer_name_2, handover_officer_role_2, handover_description, company_1, company_2, progress_status, handover_status,
+        id
+    ];
+
+    db.query(sql, params, (err, result) => {
+        if (err) return res.status(500).json(err);
+        return res.json({ message: "Updated Successfully" });
+    });
+});
+
+// 5. DELETE (Hapus Data Dokumen)
+app.delete('/api/project-documents/:id', (req, res) => {
+    const id = req.params.id;
+    const sql = "DELETE FROM project_documents WHERE id=?";
+    
+    db.query(sql, [id], (err, result) => {
+        if (err) return res.status(500).json(err);
+        return res.json({ message: "Deleted Successfully" });
+    });
+});
+
+// Di file backend Express Anda:
+app.put('/api/project-documents/status/:id', (req, res) => {
+    const { id } = req.params;
+    const {  
+        progress_status,  // <-- PASTIKAN INI DITANGKAP
+        handover_status   // <-- PASTIKAN INI DITANGKAP
+    } = req.body;
+
+    const sql = `UPDATE project_documents SET  
+        progress_status = ?, 
+        handover_status = ? 
+        WHERE id = ?`;
+
+    db.query(sql, [progress_status, handover_status, id], (err, result) => {
+        if (err) return res.status(500).json(err);
+        return res.json({ message: "Data terupdate!" });
+    });
+});
+
+app.listen(PORT, () => {
+    console.log(`🚀 Server berjalan di http://localhost:${PORT}`);
+});
