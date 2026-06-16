@@ -5,11 +5,29 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
+import htmlEditButton from 'quill-html-edit-button';
+import { html as beautifyHtml } from 'js-beautify';
+
 
 // Registrasi modul alignment agar mendukung rata kiri-kanan (justify) di Quill secara absolut
-const Quill = ReactQuill.Quill;
+const Quill = ReactQuill.Quill; 
+Quill.register('modules/htmlEditButton', htmlEditButton);
+// === TAMBAHKAN KODE INI UNTUK MENGAKTIFKAN INLINE STYLE ===
+const DirectionAttribute = Quill.import('attributors/style/direction');
 const AlignStyle = Quill.import('attributors/style/align');
-Quill.register(AlignStyle, true);
+const BackgroundStyle = Quill.import('attributors/style/background');
+const ColorStyle = Quill.import('attributors/style/color');
+const FontStyle = Quill.import('attributors/style/font');
+const SizeStyle = Quill.import('attributors/style/size');
+// === REGISTRASI LANGSUNG TANPA MEMBUAT VARIABEL BARU ===
+Quill.register(Quill.import('attributors/style/direction'), true);
+Quill.register(Quill.import('attributors/style/align'), true);
+Quill.register(Quill.import('attributors/style/background'), true);
+Quill.register(Quill.import('attributors/style/color'), true);
+Quill.register(Quill.import('attributors/style/font'), true);
+Quill.register(Quill.import('attributors/style/size'), true);
+// ========================================================
+// ========================================================
 
 const ProjectDocument = ({ projectId }) => {
     // STATE MANAGEMENT
@@ -33,6 +51,7 @@ const ProjectDocument = ({ projectId }) => {
     const [syncBastPihak1, setSyncBastPihak1] = useState(false);
     const [syncBastPihak2, setSyncBastPihak2] = useState(false);
     const [portfolioSearch, setPortfolioSearch] = useState('');
+    const [description, setDescription] = useState('');
 
     // STATE FORM: MURNI KOSONG SESUAI STRUKTUR API
     const [formData, setFormData] = useState({
@@ -66,13 +85,48 @@ const ProjectDocument = ({ projectId }) => {
     
     const [notification, setNotification] = useState({ show: false, message: '', type: 'success' }); 
 
+// Fungsi untuk merapikan isi HTML di dalam State
+    const handleFormatHTML = (field) => {
+        if (!formData[field]) return;
+
+        // Konfigurasi standar agar susunan tag HTML rapi ke bawah
+        const options = {
+            indent_size: 2,
+            wrap_line_length: 60,
+            preserve_newlines: true,
+            end_with_newline: true
+        };
+
+        // Proses merapikan teks HTML
+        const rapiHtml = beautifyHtml(formData[field], options);
+
+        // Simpan kembali ke dalam state
+        setFormData(prev => ({
+            ...prev,
+            [field]: rapiHtml
+        }));
+    };
+    const [isHtmlMode, setIsHtmlMode] = useState(false);
+    // Update Konfigurasi Modules Anda
     const formQuillModules = {
         toolbar: [
+           [{ 'header': [1, 2, 3, false] }],
             ['bold', 'italic', 'underline', 'strike'],
-            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-            [{ 'align': [] }], // Ditambahkan alignment rata kiri-kanan (justify)
+            [{ 'color': [] }, { 'background': [] }], // Pastikan baris warna ini aktif di toolbar
+            [{ 'align': [] }],
             ['clean']
         ],
+        // Tambahkan konfigurasi htmlEditButton di bawah ini
+        htmlEditButton: {
+            debug: false,
+            msg: "Edit kode HTML",
+            okText: "Simpan",
+            cancelText: "Batal",
+            buttonHTML: "&lt;&gt;", // Menampilkan tombol <> di toolbar
+        },
+        clipboard: {
+             matchVisual: false,
+        }
     };
 
       const fetchClients = async () => {
@@ -671,553 +725,459 @@ const generateBastTemplate = (project) => {
             })()}
 
            {/* VIEW MODE: INPUT FORM UTAMA */}
-{viewMode === 'form' && (
-    <div className="bg-white rounded-2xl shadow-xl shadow-gray-200/50 border border-gray-100 p-6 sm:p-8">
-        {/* Form Header */}
-        <div className="mb-6 border-b border-gray-100 pb-4">
-            <h3 className="text-lg sm:text-xl font-bold text-gray-900 tracking-tight">
-                {formData.id ? '✏️ Perbarui Dokumen Administrasi Proyek' : '➕ Buat Dokumen Administrasi Baru'}
-            </h3>
-            <p className="text-xs text-gray-500 mt-1">Lengkapi berkas BAP, BAPP, dan BAST untuk kebutuhan cetak.</p>
-        </div>
+         {viewMode === 'form' && (
+                <div className="bg-white rounded-2xl shadow-xl shadow-gray-200/50 border border-gray-100 p-6 sm:p-8 max-w-5xl mx-auto my-6">
+                    {/* Form Header */}
+                    <div className="mb-6 border-b border-gray-100 pb-4">
+                        <h3 className="text-lg sm:text-xl font-bold text-gray-900 tracking-tight">
+                            {formData.id ? '✏️ Perbarui Dokumen Administrasi Proyek' : '➕ Buat Dokumen Administrasi Baru'}
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-1">Lengkapi berkas BAP, BAPP, dan BAST untuk kebutuhan cetak.</p>
+                    </div>
 
-        <form onSubmit={handleSaveDocument} className="space-y-6">
-            
-            {/* ====== KELOMPOK DATA UTAMA & PERUSAHAAN (CUKUP ISI 1 KALI) ====== */}
-            <div className="bg-slate-50 p-5 rounded-xl border border-slate-200/60 space-y-4">
-                <span className="text-xs font-bold text-slate-700 block tracking-wider uppercase">📍 Informasi Umum & Instansi/Perusahaan</span>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Kolom Pilihan Acuan Proyek dengan Fitur Search */}
-                    <div className="space-y-2">
-                        <label className={labelStyle}>Pilih Acuan Proyek</label>
+                    <form onSubmit={handleSaveDocument} className="space-y-6">
                         
-                        <div className="relative">
-                            <input 
-                                type="text" 
-                                placeholder="🔍 Ketik untuk cari proyek..." 
-                                className="w-full border border-gray-200 bg-gray-50 text-gray-800 rounded-t-xl px-3 py-1.5 text-xs outline-none focus:border-indigo-500 transition border-b-0"
-                                value={portfolioSearch}
-                                onChange={(e) => setPortfolioSearch(e.target.value)}
-                            />
+                        {/* ====== KELOMPOK DATA UTAMA & PERUSAHAAN ====== */}
+                        <div className="bg-slate-50 p-5 rounded-xl border border-slate-200/60 space-y-4">
+                            <span className="text-xs font-bold text-slate-700 block tracking-wider uppercase">📍 Informasi Umum & Instansi/Perusahaan</span>
                             
-                            <select 
-                                className={`${inputStyle} rounded-t-none`} 
-                                value={formData.project_id ? String(formData.project_id) : ''} 
-                                onChange={handleProjectChange}
-                                required
-                            >
-                                <option value="">-- Pilih Portofolio Proyek --</option>
-                                {portfolios
-                                    .filter(p => {
-                                        const targetTitle = p.title || p.name || '';
-                                        return targetTitle.toLowerCase().includes(portfolioSearch.toLowerCase());
-                                    })
-                                    .map(p => (
-                                        <option key={p.id} value={String(p.id)}>
-                                            {p.title || p.name} {p.client_name ? `(${p.client_name})` : ''}
-                                        </option>
-                                    ))
-                                }
-                            </select>
-                        </div>
-                        {portfolioSearch && (
-                            <button 
-                                type="button" 
-                                onClick={() => setPortfolioSearch('')} 
-                                className="text-[10px] text-red-500 hover:underline block"
-                            >
-                                ❌ Reset Pencarian Proyek
-                            </button>
-                        )}
-                    </div>
-
-                    {/* Kolom Tempat Pelaksanaan Berita Acara */}
-                    <div>
-                        <label className={labelStyle}>Tempat Pelaksanaan Berita Acara</label>
-                        <input 
-                            type="text" 
-                            className={inputStyle} 
-                            value={formData.location || ''} 
-                            onChange={(e) => setFormData({...formData, location: e.target.value})} 
-                            required 
-                            placeholder="Akan terisi otomatis dari data client..." 
-                        />
-                        <p className="text-[10px] text-gray-400 mt-1">Mengambil data dari properti lokasi portofolio yang dipilih (bisa diedit kembali).</p>
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200/60">
-                    <div>
-                        <label className={labelStyle}>Nama Perusahaan / Instansi (PIHAK I)</label>
-                        <input 
-                            type="text" 
-                            className={inputStyle} 
-                            value={formData.company_1 || ''} 
-                            onChange={(e) => setFormData({...formData, company_1: e.target.value})} 
-                            required 
-                            placeholder="Contoh: Dana Pensiun Telkom" 
-                        />
-                    </div>
-                    <div>
-                        <label className={labelStyle}>Nama Perusahaan / Instansi (PIHAK II)</label>
-                        <input type="text" className={inputStyle} value={formData.company_2 || ''} onChange={(e) => setFormData({...formData, company_2: e.target.value})} required placeholder="Contoh: PT. Crop Inspirasi Digital" />
-                    </div>
-                </div>
-            </div>
-
-            {/* ====== SECTION 1: BAP ====== */}
-            <div className="border border-amber-200 rounded-xl p-5 space-y-5 bg-amber-50/5 shadow-sm">
-                <h4 className="text-sm font-bold text-amber-800 uppercase tracking-wide border-b border-amber-100 pb-2">
-                    Halaman 1: Berita Acara Pemeriksaan Pekerjaan (BAP)
-                </h4>
-                
-                <div className="w-full md:w-1/3">
-                    <label className={labelStyle}>Tanggal Pelaksanaan BAP</label>
-                    <input type="date" className={inputStyle} value={formData.inspection_date} onChange={(e) => setFormData({...formData, inspection_date: e.target.value})} required />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-                    {/* Pihak I BAP */}
-                    <div className="bg-white p-4 rounded-xl border border-gray-100 space-y-3 shadow-sm">
-                        <div className="flex justify-between items-center border-b pb-1">
-                            <span className="text-xs font-bold text-gray-700">👤 PIHAK PERTAMA (I)</span>
-                            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium truncate max-w-[180px]">{formData.company_1 || 'Perusahaan I belum diisi'}</span>
-                        </div>
-                        <div><label className={labelStyle}>Nama Petugas / Wakil</label><input type="text" className={inputStyle} value={formData.inspection_officer_name_1 || ''} onChange={(e) => setFormData({...formData, inspection_officer_name_1: e.target.value})} required placeholder="Nama Lengkap Pihak I" /></div>
-                        <div><label className={labelStyle}>Jabatan</label><input type="text" className={inputStyle} value={formData.inspection_officer_role_1 || ''} onChange={(e) => setFormData({...formData, inspection_officer_role_1: e.target.value})} required placeholder="Contoh: Project Manager" /></div>
-                    </div>
-
-                    {/* Pihak II BAP */}
-                    <div className="bg-white p-4 rounded-xl border border-gray-100 space-y-3 shadow-sm">
-                        <div className="flex justify-between items-center border-b pb-1">
-                            <span className="text-xs font-bold text-gray-700">👤 PIHAK KEDUA (II)</span>
-                            <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-medium truncate max-w-[180px]">{formData.company_2 || 'Perusahaan II belum diisi'}</span>
-                        </div>
-                        <div><label className={labelStyle}>Nama Petugas / Wakil</label><input type="text" className={inputStyle} value={formData.inspection_officer_name_2 || ''} onChange={(e) => setFormData({...formData, inspection_officer_name_2: e.target.value})} required placeholder="Nama Lengkap Pihak II" /></div>
-                        <div><label className={labelStyle}>Jabatan</label><input type="text" className={inputStyle} value={formData.inspection_officer_role_2 || ''} onChange={(e) => setFormData({...formData, inspection_officer_role_2: e.target.value})} required placeholder="Contoh: Supervisor" /></div>
-                    </div>
-                </div>
-
-                <div>
-                    <label className={labelStyle}>Deskripsi Hasil Pemeriksaan BAP</label>
-                    <ReactQuill theme="snow" modules={formQuillModules} value={formData.inspection_description} onChange={(content) => setFormData({...formData, inspection_description: content})} />
-                </div>
-            </div>
-
-             {/* ====== SECTION 2: BAPP ====== */}
-            <div className={`border rounded-xl p-5 space-y-5 transition-all duration-200 shadow-sm ${Number(formData.progress_status) === 1 ? 'border-blue-200 bg-blue-50/5' : 'border-gray-200 bg-gray-50/50 opacity-60'}`}>
-                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 border-b border-gray-100 pb-3">
-                    <div>
-                        <h4 className={`text-sm font-bold uppercase tracking-wide ${Number(formData.progress_status) === 1 ? 'text-blue-800' : 'text-gray-400'}`}>
-                            Halaman 2: Berita Acara Penyelesaian Pekerjaan (BAPP)
-                        </h4>
-                        <p className="text-[11px] text-gray-400 mt-0.5">Tentukan apakah dokumen halaman ini perlu diterbitkan atau tidak.</p>
-                    </div>
-                    
-                    {/* Toggle Switch yang Lebih Aman & Rapi */}
-                    <button
-                        type="button"
-                        onClick={() => setFormData({...formData, progress_status: Number(formData.progress_status) === 1 ? 0 : 1})}
-                        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold transition active:scale-95 ${
-                            Number(formData.progress_status) === 1 
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' 
-                            : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-                        }`}
-                    >
-                        {Number(formData.progress_status) === 1 ? '🟢 BAPP Aktif (Dicetak)' : '❌ BAPP Non-Aktif (Dilewati)'}
-                    </button>
-                </div>
-                
-                {/* Form Konten BAPP */}
-                {Number(formData.progress_status) === 1 ? (
-                    <div className="space-y-5 transition-all">
-                        <div className="w-full md:w-1/3">
-                            <label className={labelStyle}>Tanggal Pelaksanaan BAPP</label>
-                            <input type="date" className={inputStyle} value={formData.progress_date || ''} onChange={(e) => setFormData({...formData, progress_date: e.target.value})} required />
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-                            {/* Pihak I BAPP */}
-                            <div className="bg-white p-4 rounded-xl border border-gray-100 space-y-3 shadow-sm">
-                                <div className="flex justify-between items-center border-b pb-1 gap-2">
-                                    <span className="text-xs font-bold text-gray-700 shrink-0">👤 PIHAK PERTAMA (I)</span>
-                                    <label className="inline-flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 cursor-pointer text-[10px] font-semibold text-blue-700 select-none hover:bg-blue-100 transition">
-                                        <input type="checkbox" className="rounded text-blue-600 w-3 h-3" checked={syncBappPihak1} 
-                                            onChange={(e) => {
-                                                setSyncBappPihak1(e.target.checked);
-                                                if(e.target.checked) setFormData(p => ({...p, progress_officer_name_1: p.inspection_officer_name_1, progress_officer_role_1: p.inspection_officer_role_1}));
-                                            }} 
-                                        />
-                                        <span>Sama dengan BAP</span>
-                                    </label>
-                                </div>
-                                <div><label className={labelStyle}>Nama Petugas / Wakil</label><input type="text" className={inputStyle} value={syncBappPihak1 ? (formData.inspection_officer_name_1 || '') : (formData.progress_officer_name_1 || '')} onChange={(e) => setFormData({...formData, progress_officer_name_1: e.target.value})} disabled={syncBappPihak1} required placeholder="Nama Lengkap" /></div>
-                                <div><label className={labelStyle}>Jabatan</label><input type="text" className={inputStyle} value={syncBappPihak1 ? (formData.inspection_officer_role_1 || '') : (formData.progress_officer_role_1 || '')} onChange={(e) => setFormData({...formData, progress_officer_role_1: e.target.value})} disabled={syncBappPihak1} required placeholder="Jabatan" /></div>
-                            </div>
-
-                            {/* Pihak II BAPP */}
-                            <div className="bg-white p-4 rounded-xl border border-gray-100 space-y-3 shadow-sm">
-                                <div className="flex justify-between items-center border-b pb-1 gap-2">
-                                    <span className="text-xs font-bold text-gray-700 shrink-0">👤 PIHAK KEDUA (II)</span>
-                                    <label className="inline-flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 cursor-pointer text-[10px] font-semibold text-blue-700 select-none hover:bg-blue-100 transition">
-                                        <input type="checkbox" className="rounded text-blue-600 w-3 h-3" checked={syncBappPihak2} 
-                                            onChange={(e) => {
-                                                setSyncBappPihak2(e.target.checked);
-                                                if(e.target.checked) setFormData(p => ({...p, progress_officer_name_2: p.inspection_officer_name_2, progress_officer_role_2: p.inspection_officer_role_2}));
-                                            }} 
-                                        />
-                                        <span>Sama dengan BAP</span>
-                                    </label>
-                                </div>
-                                <div><label className={labelStyle}>Nama Petugas / Wakil</label><input type="text" className={inputStyle} value={syncBappPihak2 ? (formData.inspection_officer_name_2 || '') : (formData.progress_officer_name_2 || '')} onChange={(e) => setFormData({...formData, progress_officer_name_2: e.target.value})} disabled={syncBappPihak2} required placeholder="Nama Lengkap" /></div>
-                                <div><label className={labelStyle}>Jabatan</label><input type="text" className={inputStyle} value={syncBappPihak2 ? (formData.inspection_officer_role_2 || '') : (formData.progress_officer_role_2 || '')} onChange={(e) => setFormData({...formData, progress_officer_role_2: e.target.value})} disabled={syncBappPihak2} required placeholder="Jabatan" /></div>
-                            </div>
-                        </div>
-
-                        <div>
-                            <label className={labelStyle}>Deskripsi Kemajuan Pekerjaan BAPP</label>
-                            <ReactQuill 
-                                theme="snow" 
-                                modules={formQuillModules} 
-                                value={formData.progress_description || ''} 
-                                onChange={(content) => setFormData(prev => ({ ...prev, progress_description: content }))} 
-                            />
-                        </div>
-                    </div>
-                ) : (
-                    <div className="bg-gray-100/70 text-center py-4 px-4 rounded-xl border border-dashed border-gray-300">
-                        <p className="text-xs font-medium text-gray-500">📄 Berkas halaman BAPP dinonaktifkan. Data ini tidak akan disimpan/dicetak.</p>
-                    </div>
-                )}
-            </div>
-
-            {/* ====== SECTION 3: BAST ====== */}
-            <div className={`border rounded-xl p-5 space-y-5 transition-all duration-200 shadow-sm ${Number(formData.handover_status) === 1 ? 'border-emerald-200 bg-emerald-50/5' : 'border-gray-200 bg-gray-50/50 opacity-60'}`}>
-                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 border-b border-gray-100 pb-3">
-                    <div>
-                        <h4 className={`text-sm font-bold uppercase tracking-wide ${Number(formData.handover_status) === 1 ? 'text-emerald-800' : 'text-gray-400'}`}>
-                            Halaman 3: Berita Acara Serah Terima Pekerjaan (BAST)
-                        </h4>
-                        <p className="text-[11px] text-gray-400 mt-0.5">Tentukan apakah dokumen halaman ini perlu diterbitkan atau tidak.</p>
-                    </div>
-                    
-                    {/* Toggle Switch yang Lebih Aman & Rapi */}
-                    <button
-                        type="button"
-                        onClick={() => setFormData({...formData, handover_status: Number(formData.handover_status) === 1 ? 0 : 1})}
-                        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold transition active:scale-95 ${
-                            Number(formData.handover_status) === 1 
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' 
-                            : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-                        }`}
-                    >
-                        {Number(formData.handover_status) === 1 ? '🟢 BAST Aktif (Dicetak)' : '❌ BAST Non-Aktif (Dilewati)'}
-                    </button>
-                </div>
-                
-                {/* Form Konten BAST */}
-                {Number(formData.handover_status) === 1 ? (
-                    <div className="space-y-5 transition-all">
-                        <div className="w-full md:w-1/3">
-                            <label className={labelStyle}>Tanggal Pelaksanaan BAST</label>
-                            <input type="date" className={inputStyle} value={formData.handover_date || ''} onChange={(e) => setFormData({...formData, handover_date: e.target.value})} required />
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-                            {/* Pihak I BAST */}
-                            <div className="bg-white p-4 rounded-xl border border-gray-100 space-y-3 shadow-sm">
-                                <div className="flex justify-between items-center border-b pb-1 gap-2">
-                                    <span className="text-xs font-bold text-gray-700 shrink-0">👤 PIHAK PERTAMA (I)</span>
-                                    <label className="inline-flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 cursor-pointer text-[10px] font-semibold text-emerald-700 select-none hover:bg-emerald-100 transition">
-                                        <input type="checkbox" className="rounded text-emerald-600 w-3 h-3" checked={syncBastPihak1} 
-                                            onChange={(e) => {
-                                                setSyncBastPihak1(e.target.checked);
-                                                if(e.target.checked) {
-                                                    const nameSource = syncBappPihak1 ? formData.inspection_officer_name_1 : formData.progress_officer_name_1;
-                                                    const roleSource = syncBappPihak1 ? formData.inspection_officer_role_1 : formData.progress_officer_role_1;
-                                                    setFormData(p => ({...p, handover_officer_name_1: nameSource, handover_officer_role_1: roleSource}));
-                                                }
-                                            }} 
-                                        />
-                                        <span>Sama dengan BAPP</span>
-                                    </label>
-                                </div>
-                                <div><label className={labelStyle}>Nama Petugas / Wakil</label><input type="text" className={inputStyle} value={syncBastPihak1 ? (syncBappPihak1 ? (formData.inspection_officer_name_1 || '') : (formData.progress_officer_name_1 || '')) : (formData.handover_officer_name_1 || '')} onChange={(e) => setFormData({...formData, handover_officer_name_1: e.target.value})} disabled={syncBastPihak1} required placeholder="Nama Lengkap" /></div>
-                                <div><label className={labelStyle}>Jabatan</label><input type="text" className={inputStyle} value={syncBastPihak1 ? (syncBappPihak1 ? (formData.inspection_officer_role_1 || '') : (formData.progress_officer_role_1 || '')) : (formData.handover_officer_role_1 || '')} onChange={(e) => setFormData({...formData, handover_officer_role_1: e.target.value})} disabled={syncBastPihak1} required placeholder="Jabatan" /></div>
-                            </div>
-
-                            {/* Pihak II BAST */} 
-                            <div className="bg-white p-4 rounded-xl border border-gray-100 space-y-3 shadow-sm">
-                                <div className="flex justify-between items-center border-b pb-1 gap-2">
-                                    <span className="text-xs font-bold text-gray-700 shrink-0">👤 PIHAK KEDUA (II)</span>
-                                    <label className="inline-flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 cursor-pointer text-[10px] font-semibold text-emerald-700 select-none hover:bg-emerald-100 transition">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className={labelStyle}>Pilih Acuan Proyek</label>
+                                    <div className="relative">
                                         <input 
-                                            type="checkbox" 
-                                            className="rounded text-emerald-600 w-3 h-3" 
-                                            checked={syncBastPihak2} 
-                                            onChange={(e) => {
-                                                setSyncBastPihak2(e.target.checked);
-                                                if(e.target.checked) {
-                                                    const nameSource = syncBappPihak2 ? formData.inspection_officer_name_2 : formData.progress_officer_name_2;
-                                                    const roleSource = syncBappPihak2 ? formData.inspection_officer_role_2 : formData.progress_officer_role_2;
-                                                    setFormData(p => ({...p, handover_officer_name_2: nameSource, handover_officer_role_2: roleSource}));
-                                                }
-                                            }} 
+                                            type="text" 
+                                            placeholder="🔍 Ketik untuk cari proyek..." 
+                                            className="w-full border border-gray-200 bg-gray-50 text-gray-800 rounded-t-xl px-3 py-1.5 text-xs outline-none focus:border-indigo-500 transition border-b-0"
+                                            value={portfolioSearch}
+                                            onChange={(e) => setPortfolioSearch(e.target.value)}
                                         />
-                                        <span>Sama dengan BAPP</span>
-                                    </label>
+                                        <select 
+                                            className={`${inputStyle} rounded-t-none`} 
+                                            value={formData.project_id ? String(formData.project_id) : ''} 
+                                            onChange={handleProjectChange}
+                                            required
+                                        >
+                                            <option value="">-- Pilih Portofolio Proyek --</option>
+                                            {portfolios
+                                                .filter(p => (p.title || p.name || '').toLowerCase().includes(portfolioSearch.toLowerCase()))
+                                                .map(p => (
+                                                    <option key={p.id} value={String(p.id)}>
+                                                        {p.title || p.name} {p.client_name ? `(${p.client_name})` : ''}
+                                                    </option>
+                                                ))
+                                            }
+                                        </select>
+                                    </div>
+                                    {portfolioSearch && (
+                                        <button type="button" onClick={() => setPortfolioSearch('')} className="text-[10px] text-red-500 hover:underline block">❌ Reset Pencarian</button>
+                                    )}
+                                </div>
+
+                                <div>
+                                    <label className={labelStyle}>Tempat Pelaksanaan Berita Acara</label>
+                                    <input type="text" className={inputStyle} value={formData.location || ''} onChange={(e) => setFormData({...formData, location: e.target.value})} required placeholder="Lokasi pelaksanaan..." />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200/60">
+                                <div>
+                                    <label className={labelStyle}>Nama Perusahaan / Instansi (PIHAK I)</label>
+                                    <input type="text" className={inputStyle} value={formData.company_1 || ''} onChange={(e) => setFormData({...formData, company_1: e.target.value})} required placeholder="Contoh: Dana Pensiun Telkom" />
                                 </div>
                                 <div>
-                                    <label className={labelStyle}>Nama Petugas / Wakil</label>
-                                    <input 
-                                        type="text" 
-                                        className={inputStyle} 
-                                        value={syncBastPihak2 ? (syncBappPihak2 ? (formData.inspection_officer_name_2 || '') : (formData.progress_officer_name_2 || '')) : (formData.handover_officer_name_2 || '')} 
-                                        onChange={(e) => setFormData({...formData, handover_officer_name_2: e.target.value})} 
-                                        disabled={syncBastPihak2} 
-                                        required 
-                                        placeholder="Nama Lengkap" 
-                                    />
-                                </div>
-                                <div>
-                                    <label className={labelStyle}>Jabatan</label>
-                                    <input 
-                                        type="text" 
-                                        className={inputStyle} 
-                                        value={syncBastPihak2 ? (syncBappPihak2 ? (formData.inspection_officer_role_2 || '') : (formData.progress_officer_role_2 || '')) : (formData.handover_officer_role_2 || '')} 
-                                        onChange={(e) => setFormData({...formData, handover_officer_role_2: e.target.value})} 
-                                        disabled={syncBastPihak2} 
-                                        required 
-                                        placeholder="Jabatan" 
-                                    />
+                                    <label className={labelStyle}>Nama Perusahaan / Instansi (PIHAK II)</label>
+                                    <input type="text" className={inputStyle} value={formData.company_2 || ''} onChange={(e) => setFormData({...formData, company_2: e.target.value})} required placeholder="Contoh: PT. Crop Inspirasi Digital" />
                                 </div>
                             </div>
                         </div>
 
-                        <div>
-                            <label className={labelStyle}>Deskripsi Serah Terima BAST</label>
-                            <ReactQuill 
-                                theme="snow" 
-                                modules={formQuillModules} 
-                                value={formData.handover_description || ''} 
-                                onChange={(content) => setFormData(prev => ({ ...prev, handover_description: content }))} 
-                            />
-                        </div>
-                    </div>
-                ) : (
-                    <div className="bg-gray-100/70 text-center py-4 px-4 rounded-xl border border-dashed border-gray-300">
-                        <p className="text-xs font-medium text-gray-500">📄 Berkas halaman BAST dinonaktifkan. Data ini tidak akan disimpan/dicetak.</p>
-                    </div>
-                )}
-            </div>
+                        {/* ====== SECTION 1: BAP ====== */}
+                        <div className="border border-amber-200 rounded-xl p-5 space-y-5 bg-amber-50/5 shadow-sm">
+                            <h4 className="text-sm font-bold text-amber-800 uppercase tracking-wide border-b border-amber-100 pb-2">Halaman 1: Berita Acara Pemeriksaan Pekerjaan (BAP)</h4>
+                            <div className="w-full md:w-1/3">
+                                <label className={labelStyle}>Tanggal Pelaksanaan BAP</label>
+                                <input type="date" className={inputStyle} value={formData.inspection_date} onChange={(e) => setFormData({...formData, inspection_date: e.target.value})} required />
+                            </div>
 
-            {/* Form Actions */}
-            <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
-                <button type="button" 
-                    onClick={() => { 
-                        setSyncBappPihak1(false); setSyncBappPihak2(false); 
-                        setSyncBastPihak1(false); setSyncBastPihak2(false); 
-                        resetForm(); 
-                    }} 
-                    className="px-5 py-2.5 bg-gray-100 text-gray-600 rounded-xl text-xs font-bold hover:bg-gray-200 transition active:scale-95"
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                                <div className="bg-white p-4 rounded-xl border border-gray-100 space-y-3 shadow-sm">
+                                    <div className="flex justify-between items-center border-b pb-1"><span className="text-xs font-bold text-gray-700">👤 PIHAK PERTAMA (I)</span></div>
+                                    <div><label className={labelStyle}>Nama Petugas / Wakil</label><input type="text" className={inputStyle} value={formData.inspection_officer_name_1 || ''} onChange={(e) => setFormData({...formData, inspection_officer_name_1: e.target.value})} required placeholder="Nama Lengkap Pihak I" /></div>
+                                    <div><label className={labelStyle}>Jabatan</label><input type="text" className={inputStyle} value={formData.inspection_officer_role_1 || ''} onChange={(e) => setFormData({...formData, inspection_officer_role_1: e.target.value})} required placeholder="Project Manager" /></div>
+                                </div>
+                                <div className="bg-white p-4 rounded-xl border border-gray-100 space-y-3 shadow-sm">
+                                    <div className="flex justify-between items-center border-b pb-1"><span className="text-xs font-bold text-gray-700">👤 PIHAK KEDUA (II)</span></div>
+                                    <div><label className={labelStyle}>Nama Petugas / Wakil</label><input type="text" className={inputStyle} value={formData.inspection_officer_name_2 || ''} onChange={(e) => setFormData({...formData, inspection_officer_name_2: e.target.value})} required placeholder="Nama Lengkap Pihak II" /></div>
+                                    <div><label className={labelStyle}>Jabatan</label><input type="text" className={inputStyle} value={formData.inspection_officer_role_2 || ''} onChange={(e) => setFormData({...formData, inspection_officer_role_2: e.target.value})} required placeholder="Supervisor" /></div>
+                                </div>
+                            </div>
+ 
+            <div className="flex justify-between items-center border-b pb-2">
+                <label className={labelStyle}>Deskripsi Hasil Pemeriksaan BAP</label>
+                
+                {/* TOMBOL TOGGLE UNTUK BERGANTI MODE VISUAL <=> HTML */}
+                <button
+                    type="button"
+                    onClick={() => setIsHtmlMode(!isHtmlMode)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition active:scale-95 ${
+                        isHtmlMode 
+                        ? 'bg-amber-100 text-amber-700 border border-amber-300' 
+                        : 'bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100'
+                    }`}
                 >
-                    Batal
-                </button>
-                <button type="submit" disabled={isSaving} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition shadow-lg shadow-indigo-500/20 active:scale-95 disabled:opacity-50">
-                    {isSaving ? '⏳ Menyimpan...' : '⚡ Simpan Berkas Dokumen'}
+                    {isHtmlMode ? '👁️ Lihat Mode Visual' : '💻 Edit Kode HTML (<>)'}
                 </button>
             </div>
-        </form>
-    </div>
-)}
 
-{/* PREVIEW CONTAINER MODAL */}
-{previewLetter && (() => {
-    
-    const renderLembarHalaman = (judulDokumen, tglDokumen, p1Nama, p1Jabacy, p2Nama, p2Jabacy, isiDeskripsiText, fieldKeyName, hasMeterai) => {
-        const { hari, tanggalTerbilang } = getHariDanTerbilang(tglDokumen);
-        return (
-            /* Mengubah penataan halaman menjadi flex flex-col justify-start agar posisi TTD naik mengikuti isi teks */
-            <div className="pdf-page-bundle bg-white text-black shrink-0 shadow-2xl relative p-[65px] pt-[105px] flex flex-col justify-start mb-10" style={{ width: "794px", height: "1122px", boxSizing: "border-box", fontFamily: "Arial, sans-serif" }}>
-                <img src={`${window.location.origin}/crop2026.png`} crossOrigin="anonymous" className="absolute top-0 left-0 w-[794px] h-[1122px] z-0 pointer-events-none select-none" alt="Kop Surat" />
-                
-                <div className="relative z-10 flex-1 flex flex-col justify-start">
-                    <div>
-                        {/* JUDUL: Tepat diset ke 14px (text-[14px]) */}
-                        <div className="text-center mb-5">
-                             {/* JUDUL: Tepat diset ke 14px & Garis diletakkan di bawah teks kedua */}
-                            <div className="text-center mb-5 flex flex-col items-center">
-                                <h2 className="text-[14px] font-bold uppercase tracking-wide leading-tight" style={{ fontFamily: "Arial, sans-serif" }}>
-                                    {judulDokumen}
-                                </h2>
-                                <h3 className="text-[14px] font-bold uppercase tracking-wide leading-tight mt-1" style={{ fontFamily: "Arial, sans-serif" }}>
-                                    {getProjectTitle(previewLetter.project_id)}
-                                </h3> 
-                                {/* Garis horizontal ganda (Double Border) khas surat resmi */}
-                                <div className="w-full border-b-[3px] border-double border-black mt-2 mb-1"></div>
-                            </div>
-                        </div>
-
-                        {/* PEMBUKA */}
-                        <div className="text-[12px] text-justify mb-4" style={{ lineHeight: docLineSpacing, fontFamily: "Arial, sans-serif" }}>
-                            Pada hari ini, {tanggalTerbilang} bertempat di <span className="font-semibold">{previewLetter.location || "____________________"}</span>, kami yang bertandatangan di bawah ini:
-                        </div>
-
-                        {/* IDENTITAS PIHAK */}
-                        <div className="text-[12px] space-y-3 mb-4" style={{ lineHeight: docLineSpacing, fontFamily: "Arial, sans-serif" }}>
-                            <div className="grid grid-cols-[30px_1fr] items-start">
-                                <div className="font-bold">I.</div>
-                                <div>
-                                    <table className="text-[12px] border-collapse py-0" style={{ fontFamily: "Arial, sans-serif" }}>
-                                        <tbody>
-                                            <tr><td className="w-[85px] py-0.5">Nama</td><td className="w-[20px] text-center py-0.5">:</td><td className="font-semibold py-0.5">{p1Nama || '-'}</td></tr>
-                                            <tr><td className="py-0.5">Jabatan</td><td className="text-center py-0.5">:</td><td className="py-0.5">{p1Jabacy || '-'}</td></tr>
-                                            <tr><td className="py-0.5">Perusahaan</td><td className="text-center py-0.5">:</td><td className="py-0.5">{ previewLetter.company_1 || '-'}</td></tr>
-                                        </tbody>
-                                    </table>
-                                    <div className="mt-0.5 text-gray-950">selanjutnya disebut sebagai <span className="font-bold">PIHAK PERTAMA,</span></div>
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-[30px_1fr] items-start pt-0.5">
-                                <div className="font-bold">II.</div>
-                                <div>
-                                    <table className="text-[12px] border-collapse py-0" style={{ fontFamily: "Arial, sans-serif" }}>
-                                        <tbody>
-                                            <tr><td className="w-[85px] py-0.5">Nama</td><td className="w-[20px] text-center py-0.5">:</td><td className="font-semibold py-0.5">{p2Nama || '-'}</td></tr>
-                                            <tr><td className="py-0.5">Jabatan</td><td className="text-center py-0.5">:</td><td className="py-0.5">{p2Jabacy || '-'}</td></tr>
-                                            <tr><td className="py-0.5">Perusahaan</td><td className="text-center py-0.5">:</td><td className="py-0.5">{ previewLetter.company_2 || '-'}</td></tr>
-                                        </tbody>
-                                    </table>
-                                    <div className="mt-0.5 text-gray-950">selanjutnya disebut sebagai <span className="font-bold">PIHAK KEDUA,</span></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* AREA EDITOR AKTIF DI PREVIEW: Mendukung formatting alignment penuh */}
-                        <div className="text-[12px] mt-3 leading-normal">
-                            <div className="preview-editable-zone" style={{ lineHeight: docLineSpacing }}>
-                                <ReactQuill 
-                                    theme="snow"
-                                    modules={previewQuillModules}
-                                    readOnly={false}
-                                    value={isiDeskripsiText}
-                                    onChange={(content) => setPreviewLetter(prev => ({ ...prev, [fieldKeyName]: content }))}
-                                />
-                            </div>
-                        </div>
-
-                    </div>
-
-                    {/* TANDA TANGAN: Menggunakan margin kecil agar merapat di bawah penutup */}
-                    <div className="grid grid-cols-2 text-center text-[12px] pt-1 mt-2" style={{ fontFamily: "Arial, sans-serif" }}>
-                        <div className="flex flex-col justify-between items-center h-[150px]">
-                            <p className="font-bold uppercase">PIHAK PERTAMA</p>
-                            <div>
-                                <p className="font-bold text-gray-900 underline">{p1Nama || "____________________"}</p>
-                                <p className="text-[11px] text-gray-600 mt-0.5">{p1Jabacy || "Jabatan Pihak I"}</p>
-                            </div>
-                        </div>
-                        <div className="flex flex-col justify-between items-center h-[150px] relative">
-                            <p className="font-bold uppercase">PIHAK KEDUA</p>
-                          
-                            <div>
-                                <p className="font-bold text-gray-900 underline">{p2Nama || "____________________"}</p>
-                                <p className="text-[11px] text-gray-600 mt-0.5">{p2Jabacy || "Jabatan Pihak II"}</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
-    };
-
-    // Hitung total halaman yang aktif untuk teks di badge info panel kanan
-    const totalPages = 1 + (Number(previewLetter.progress_status) === 1 ? 1 : 0) + (Number(previewLetter.handover_status) === 1 ? 1 : 0);
-
-    return (
-        <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-sm flex flex-col lg:flex-row overflow-hidden">
-            
-            {/* SCREEN PREVIEW KIRI */}
-            <div className="flex-1 bg-slate-950 p-4 lg:p-8 overflow-y-auto flex flex-col items-center gap-2">
-                
-                {/* Lembar BAP (Selalu muncul karena tidak dinonaktifkan) */}
-                <div className="text-white text-xs font-mono uppercase bg-amber-600/20 px-4 py-1.5 rounded-full mb-2 border border-amber-500/30">Lembar 1: (BAP)</div>
-                {renderLembarHalaman(
-                    "BERITA ACARA PEMERIKSAAN PEKERJAAN (BAP)",
-                    previewLetter.inspection_date,
-                    previewLetter.inspection_officer_name_1, previewLetter.inspection_officer_role_1,
-                    previewLetter.inspection_officer_name_2, previewLetter.inspection_officer_role_2,
-                    previewLetter.inspection_description, "inspection_description", false
-                )}
-
-                {/* Lembar BAPP (Hanya di-render jika progress_status aktif) */}
-                {Number(previewLetter.progress_status) === 1 && (
-                    <>
-                        <div className="text-white text-xs font-mono uppercase bg-blue-600/20 px-4 py-1.5 rounded-full my-4 border border-blue-500/30">Lembar berikutnya: (BAPP)</div>
-                        {renderLembarHalaman(
-                            "BERITA ACARA PENYELESAIAN PEKERJAAN (BAPP)",
-                            previewLetter.progress_date,
-                            previewLetter.progress_officer_name_1, previewLetter.progress_officer_role_1,
-                            previewLetter.progress_officer_name_2, previewLetter.progress_officer_role_2,
-                            previewLetter.progress_description, "progress_description", false
-                        )}
-                    </>
-                )}
-
-                {/* Lembar BAST (Hanya di-render jika handover_status aktif) */}
-                {Number(previewLetter.handover_status) === 1 && (
-                    <>
-                        <div className="text-white text-xs font-mono uppercase bg-emerald-600/20 px-4 py-1.5 rounded-full my-4 border border-emerald-500/30">Lembar berikutnya: (BAST)</div>
-                        {renderLembarHalaman(
-                            "BERITA ACARA SERAH TERIMA PEKERJAAN (BAST)",
-                            previewLetter.handover_date,
-                            previewLetter.handover_officer_name_1, previewLetter.handover_officer_role_1,
-                            previewLetter.handover_officer_name_2, previewLetter.handover_officer_role_2,
-                            previewLetter.handover_description, "handover_description", true
-                        )}
-                    </>
+            <div className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                {isHtmlMode ? (
+                    /* ====== JIKA MODE HTML AKTIF: TAMPILKAN TEXTAREA MENTAH ====== */
+                    <textarea
+                        className="w-full h-[250px] p-4 font-mono text-xs text-indigo-900 bg-slate-50 outline-none focus:bg-white transition leading-relaxed block"
+                        value={formData.inspection_description}
+                        onChange={(e) => setFormData(prev => ({ ...prev, inspection_description: e.target.value }))}
+                        placeholder="Masukkan atau edit tag HTML di sini..."
+                    />
+                ) : (
+                    /* ====== JIKA MODE VISUAL AKTIF: TAMPILKAN TEXTEDITOR BIASA ====== */
+                    <ReactQuill 
+                        theme="snow" 
+                        modules={formQuillModules} 
+                        value={formData.inspection_description || ''} 
+                        onChange={(content) => setFormData(prev => ({ ...prev, inspection_description: content }))} 
+                        placeholder="Ketik di sini..."
+                    />
                 )}
             </div>
+ 
+                        </div>
 
-            {/* PANEL KONTROL KANAN */}
-            <div className="w-full lg:w-96 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-6 flex flex-col justify-between shrink-0">
-                <div className="space-y-6">
-                    <div>
-                        <h4 className="text-white font-bold text-lg">Pratinjau Dokumen Resmi</h4>
-                        <span className="inline-flex items-center mt-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-900/50 text-indigo-300 border border-indigo-800">
-                            Format {totalPages} Halaman Berkas Aktif
-                        </span>
-                        <p className="text-xs text-slate-400 mt-2">Gunakan editor langsung di area putih untuk merevisi draft teks sebelum dicetak ke berkas PDF.</p>
-                    </div>
-                    <div className="space-y-3">
-                        <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">Jarak Spasi Baris Paragraf</label>
-                        <div className="grid grid-cols-4 gap-2">
-                            {['1.2', '1.4', '1.6', '1.8'].map((spacing) => (
-                                <button key={spacing} onClick={() => setDocLineSpacing(spacing)} className={`py-2 text-xs font-mono rounded-lg border transition ${docLineSpacing === spacing ? 'bg-indigo-600 border-indigo-500 text-white font-bold' : 'border-slate-700 bg-slate-800/50 text-slate-300 hover:bg-slate-800'}`}>
-                                    {spacing}
+                        {/* ====== SECTION 2: BAPP ====== */}
+                        <div className={`border rounded-xl p-5 space-y-5 transition-all duration-200 shadow-sm ${Number(formData.progress_status) === 1 ? 'border-blue-200 bg-blue-50/5' : 'border-gray-200 bg-gray-50/50 opacity-60'}`}>
+                            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 border-b border-gray-100 pb-3">
+                                <div>
+                                    <h4 className={`text-sm font-bold uppercase tracking-wide ${Number(formData.progress_status) === 1 ? 'text-blue-800' : 'text-gray-400'}`}>Halaman 2: Berita Acara Penyelesaian Pekerjaan (BAPP)</h4>
+                                </div>
+                                <button type="button" onClick={() => setFormData({...formData, progress_status: Number(formData.progress_status) === 1 ? 0 : 1})} className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold transition ${Number(formData.progress_status) === 1 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>
+                                    {Number(formData.progress_status) === 1 ? '🟢 BAPP Aktif' : '❌ BAPP Non-Aktif'}
                                 </button>
-                            ))}
+                            </div>
+                            
+                            {Number(formData.progress_status) === 1 ? (
+                                <div className="space-y-5">
+                                    <div className="w-full md:w-1/3">
+                                        <label className={labelStyle}>Tanggal Pelaksanaan BAPP</label>
+                                        <input type="date" className={inputStyle} value={formData.progress_date || ''} onChange={(e) => setFormData({...formData, progress_date: e.target.value})} required />
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                                        {/* Pihak I BAPP */}
+                                        <div className="bg-white p-4 rounded-xl border border-gray-100 space-y-3 shadow-sm">
+                                            <div className="flex justify-between items-center border-b pb-1 gap-2">
+                                                <span className="text-xs font-bold text-gray-700">👤 PIHAK PERTAMA (I)</span>
+                                                <label className="inline-flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 cursor-pointer text-[10px] font-semibold text-blue-700">
+                                                    <input type="checkbox" className="rounded text-blue-600 w-3 h-3" checked={syncBappPihak1} onChange={(e) => setSyncBappPihak1(e.target.checked)} />
+                                                    <span>Sama dengan BAP</span>
+                                                </label>
+                                            </div>
+                                            <div><label className={labelStyle}>Nama Petugas</label><input type="text" className={inputStyle} value={formData.progress_officer_name_1 || ''} onChange={(e) => setFormData({...formData, progress_officer_name_1: e.target.value})} disabled={syncBappPihak1} required /></div>
+                                            <div><label className={labelStyle}>Jabatan</label><input type="text" className={inputStyle} value={formData.progress_officer_role_1 || ''} onChange={(e) => setFormData({...formData, progress_officer_role_1: e.target.value})} disabled={syncBappPihak1} required /></div>
+                                        </div>
+
+                                        {/* Pihak II BAPP */}
+                                        <div className="bg-white p-4 rounded-xl border border-gray-100 space-y-3 shadow-sm">
+                                            <div className="flex justify-between items-center border-b pb-1 gap-2">
+                                                <span className="text-xs font-bold text-gray-700">👤 PIHAK KEDUA (II)</span>
+                                                <label className="inline-flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 cursor-pointer text-[10px] font-semibold text-blue-700">
+                                                    <input type="checkbox" className="rounded text-blue-600 w-3 h-3" checked={syncBappPihak2} onChange={(e) => setSyncBappPihak2(e.target.checked)} />
+                                                    <span>Sama dengan BAP</span>
+                                                </label>
+                                            </div>
+                                            <div><label className={labelStyle}>Nama Petugas</label><input type="text" className={inputStyle} value={formData.progress_officer_name_2 || ''} onChange={(e) => setFormData({...formData, progress_officer_name_2: e.target.value})} disabled={syncBappPihak2} required /></div>
+                                            <div><label className={labelStyle}>Jabatan</label><input type="text" className={inputStyle} value={formData.progress_officer_role_2 || ''} onChange={(e) => setFormData({...formData, progress_officer_role_2: e.target.value})} disabled={syncBappPihak2} required /></div>
+                                        </div>
+                                    </div>
+
+                                    {/* TEXT EDITOR BAPP */}
+                                    <div className="bg-white p-2 rounded-xl border border-gray-200">
+                                        <label className={labelStyle}>Deskripsi Kemajuan Pekerjaan BAPP</label>
+                                        <ReactQuill 
+                                            theme="snow" 
+                                            modules={formQuillModules} 
+                                            value={formData.progress_description || ''} 
+                                            onChange={(content) => setFormData(prev => ({ ...prev, progress_description: content }))} 
+                                        />
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="bg-gray-100/70 text-center py-4 px-4 rounded-xl border border-dashed border-gray-300">
+                                    <p className="text-xs font-medium text-gray-500">📄 Berkas halaman BAPP dinonaktifkan.</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* ====== SECTION 3: BAST ====== */}
+                        <div className={`border rounded-xl p-5 space-y-5 transition-all duration-200 shadow-sm ${Number(formData.handover_status) === 1 ? 'border-emerald-200 bg-emerald-50/5' : 'border-gray-200 bg-gray-50/50 opacity-60'}`}>
+                            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 border-b border-gray-100 pb-3">
+                                <div>
+                                    <h4 className={`text-sm font-bold uppercase tracking-wide ${Number(formData.handover_status) === 1 ? 'text-emerald-800' : 'text-gray-400'}`}>Halaman 3: Berita Acara Serah Terima Pekerjaan (BAST)</h4>
+                                </div>
+                                <button type="button" onClick={() => setFormData({...formData, handover_status: Number(formData.handover_status) === 1 ? 0 : 1})} className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold transition ${Number(formData.handover_status) === 1 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>
+                                    {Number(formData.handover_status) === 1 ? '🟢 BAST Aktif' : '❌ BAST Non-Aktif'}
+                                </button>
+                            </div>
+                            
+                            {Number(formData.handover_status) === 1 ? (
+                                <div className="space-y-5">
+                                    <div className="w-full md:w-1/3">
+                                        <label className={labelStyle}>Tanggal Pelaksanaan BAST</label>
+                                        <input type="date" className={inputStyle} value={formData.handover_date || ''} onChange={(e) => setFormData({...formData, handover_date: e.target.value})} required />
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                                        {/* Pihak I BAST */}
+                                        <div className="bg-white p-4 rounded-xl border border-gray-100 space-y-3 shadow-sm">
+                                            <div className="flex justify-between items-center border-b pb-1 gap-2">
+                                                <span className="text-xs font-bold text-gray-700">👤 PIHAK PERTAMA (I)</span>
+                                                <label className="inline-flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 cursor-pointer text-[10px] font-semibold text-emerald-700">
+                                                    <input type="checkbox" className="rounded text-emerald-600 w-3 h-3" checked={syncBastPihak1} onChange={(e) => setSyncBastPihak1(e.target.checked)} />
+                                                    <span>Sama dengan BAPP</span>
+                                                </label>
+                                            </div>
+                                            <div><label className={labelStyle}>Nama Petugas</label><input type="text" className={inputStyle} value={formData.handover_officer_name_1 || ''} onChange={(e) => setFormData({...formData, handover_officer_name_1: e.target.value})} disabled={syncBastPihak1} required /></div>
+                                            <div><label className={labelStyle}>Jabatan</label><input type="text" className={inputStyle} value={formData.handover_officer_role_1 || ''} onChange={(e) => setFormData({...formData, handover_officer_role_1: e.target.value})} disabled={syncBastPihak1} required /></div>
+                                        </div>
+
+                                        {/* Pihak II BAST */} 
+                                        <div className="bg-white p-4 rounded-xl border border-gray-100 space-y-3 shadow-sm">
+                                            <div className="flex justify-between items-center border-b pb-1 gap-2">
+                                                <span className="text-xs font-bold text-gray-700">👤 PIHAK KEDUA (II)</span>
+                                                <label className="inline-flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 cursor-pointer text-[10px] font-semibold text-emerald-700">
+                                                    <input type="checkbox" className="rounded text-emerald-600 w-3 h-3" checked={syncBastPihak2} onChange={(e) => setSyncBastPihak2(e.target.checked)} />
+                                                    <span>Sama dengan BAPP</span>
+                                                </label>
+                                            </div>
+                                            <div><label className={labelStyle}>Nama Petugas</label><input type="text" className={inputStyle} value={formData.handover_officer_name_2 || ''} onChange={(e) => setFormData({...formData, handover_officer_name_2: e.target.value})} disabled={syncBastPihak2} required /></div>
+                                            <div><label className={labelStyle}>Jabatan</label><input type="text" className={inputStyle} value={formData.handover_officer_role_2 || ''} onChange={(e) => setFormData({...formData, handover_officer_role_2: e.target.value})} disabled={syncBastPihak2} required /></div>
+                                        </div>
+                                    </div>
+
+                                    {/* TEXT EDITOR BAST */}
+                                    <div className="bg-white p-2 rounded-xl border border-gray-200">
+                                        <label className={labelStyle}>Deskripsi Serah Terima BAST</label>
+                                        <ReactQuill 
+                                            theme="snow" 
+                                            modules={formQuillModules} 
+                                            value={formData.handover_description || ''} 
+                                            onChange={(content) => setFormData(prev => ({ ...prev, handover_description: content }))} 
+                                        />
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="bg-gray-100/70 text-center py-4 px-4 rounded-xl border border-dashed border-gray-300">
+                                    <p className="text-xs font-medium text-gray-500">📄 Berkas halaman BAST dinonaktifkan.</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Form Actions */}
+                        <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                            <button type="button" onClick={() => { resetForm(); }} className="px-5 py-2.5 bg-gray-100 text-gray-600 rounded-xl text-xs font-bold hover:bg-gray-200 transition">Batal</button>
+                            <button type="submit" disabled={isSaving} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition shadow-lg shadow-indigo-500/20 disabled:opacity-50">
+                                {isSaving ? '⏳ Menyimpan...' : '⚡ Simpan Berkas Dokumen'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
+
+        {/* PREVIEW CONTAINER MODAL */}
+        {previewLetter && (() => {
+            
+            const renderLembarHalaman = (judulDokumen, tglDokumen, p1Nama, p1Jabacy, p2Nama, p2Jabacy, isiDeskripsiText, fieldKeyName, hasMeterai) => {
+                const { hari, tanggalTerbilang } = getHariDanTerbilang(tglDokumen);
+                return (
+                    /* Mengubah penataan halaman menjadi flex flex-col justify-start agar posisi TTD naik mengikuti isi teks */
+                    <div className="pdf-page-bundle bg-white text-black shrink-0 shadow-2xl relative p-[65px] pt-[105px] flex flex-col justify-start mb-10" style={{ width: "794px", height: "1122px", boxSizing: "border-box", fontFamily: "Arial, sans-serif" }}>
+                        <img src={`${window.location.origin}/crop2026.png`} crossOrigin="anonymous" className="absolute top-0 left-0 w-[794px] h-[1122px] z-0 pointer-events-none select-none" alt="Kop Surat" />
+                        
+                        <div className="relative z-10 flex-1 flex flex-col justify-start">
+                            <div>
+                                {/* JUDUL: Tepat diset ke 14px (text-[14px]) */}
+                                <div className="text-center mb-5">
+                                    {/* JUDUL: Tepat diset ke 14px & Garis diletakkan di bawah teks kedua */}
+                                    <div className="text-center mb-5 flex flex-col items-center">
+                                        <h2 className="text-[14px] font-bold uppercase tracking-wide leading-tight" style={{ fontFamily: "Arial, sans-serif" }}>
+                                            {judulDokumen}
+                                        </h2>
+                                        <h3 className="text-[14px] font-bold uppercase tracking-wide leading-tight mt-1" style={{ fontFamily: "Arial, sans-serif" }}>
+                                            {getProjectTitle(previewLetter.project_id)}
+                                        </h3> 
+                                        {/* Garis horizontal ganda (Double Border) khas surat resmi */}
+                                        <div className="w-full border-b-[3px] border-double border-black mt-2 mb-1"></div>
+                                    </div>
+                                </div>
+
+                                {/* PEMBUKA */}
+                                <div className="text-[12px] text-justify mb-4" style={{ lineHeight: docLineSpacing, fontFamily: "Arial, sans-serif" }}>
+                                    Pada hari ini, {tanggalTerbilang} bertempat di <span className="font-semibold">{previewLetter.location || "____________________"}</span>, kami yang bertandatangan di bawah ini:
+                                </div>
+
+                                {/* IDENTITAS PIHAK */}
+                                <div className="text-[12px] space-y-3 mb-4" style={{ lineHeight: docLineSpacing, fontFamily: "Arial, sans-serif" }}>
+                                    <div className="grid grid-cols-[30px_1fr] items-start">
+                                        <div className="font-bold">I.</div>
+                                        <div>
+                                            <table className="text-[12px] border-collapse py-0" style={{ fontFamily: "Arial, sans-serif" }}>
+                                                <tbody>
+                                                    <tr><td className="w-[85px] py-0.5">Nama</td><td className="w-[20px] text-center py-0.5">:</td><td className="font-semibold py-0.5">{p1Nama || '-'}</td></tr>
+                                                    <tr><td className="py-0.5">Jabatan</td><td className="text-center py-0.5">:</td><td className="py-0.5">{p1Jabacy || '-'}</td></tr>
+                                                    <tr><td className="py-0.5">Perusahaan</td><td className="text-center py-0.5">:</td><td className="py-0.5">{ previewLetter.company_1 || '-'}</td></tr>
+                                                </tbody>
+                                            </table>
+                                            <div className="mt-0.5 text-gray-950">selanjutnya disebut sebagai <span className="font-bold">PIHAK PERTAMA,</span></div>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-[30px_1fr] items-start pt-0.5">
+                                        <div className="font-bold">II.</div>
+                                        <div>
+                                            <table className="text-[12px] border-collapse py-0" style={{ fontFamily: "Arial, sans-serif" }}>
+                                                <tbody>
+                                                    <tr><td className="w-[85px] py-0.5">Nama</td><td className="w-[20px] text-center py-0.5">:</td><td className="font-semibold py-0.5">{p2Nama || '-'}</td></tr>
+                                                    <tr><td className="py-0.5">Jabatan</td><td className="text-center py-0.5">:</td><td className="py-0.5">{p2Jabacy || '-'}</td></tr>
+                                                    <tr><td className="py-0.5">Perusahaan</td><td className="text-center py-0.5">:</td><td className="py-0.5">{ previewLetter.company_2 || '-'}</td></tr>
+                                                </tbody>
+                                            </table>
+                                            <div className="mt-0.5 text-gray-950">selanjutnya disebut sebagai <span className="font-bold">PIHAK KEDUA,</span></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* AREA EDITOR AKTIF DI PREVIEW: Mendukung formatting alignment penuh */}
+                                <div className="text-[12px] mt-3 leading-normal">
+                                    <div className="preview-editable-zone" style={{ lineHeight: docLineSpacing }}>
+                                        <ReactQuill 
+                                            theme="snow"
+                                            modules={previewQuillModules}
+                                            readOnly={false}
+                                            value={isiDeskripsiText}
+                                            onChange={(content) => setPreviewLetter(prev => ({ ...prev, [fieldKeyName]: content }))}
+                                        />
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            {/* TANDA TANGAN: Menggunakan margin kecil agar merapat di bawah penutup */}
+                            <div className="grid grid-cols-2 text-center text-[12px] pt-1 mt-2" style={{ fontFamily: "Arial, sans-serif" }}>
+                                <div className="flex flex-col justify-between items-center h-[150px]">
+                                    <p className="font-bold uppercase">PIHAK PERTAMA</p>
+                                    <div>
+                                        <p className="font-bold text-gray-900 underline">{p1Nama || "____________________"}</p>
+                                        <p className="text-[11px] text-gray-600 mt-0.5">{p1Jabacy || "Jabatan Pihak I"}</p>
+                                    </div>
+                                </div>
+                                <div className="flex flex-col justify-between items-center h-[150px] relative">
+                                    <p className="font-bold uppercase">PIHAK KEDUA</p>
+                                
+                                    <div>
+                                        <p className="font-bold text-gray-900 underline">{p2Nama || "____________________"}</p>
+                                        <p className="text-[11px] text-gray-600 mt-0.5">{p2Jabacy || "Jabatan Pihak II"}</p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <div className="space-y-3 pt-6 border-t border-slate-800">
-                    <button onClick={handleUpdateFromPreview} disabled={isSaving} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-xl text-sm transition">
-                        {isSaving ? '⏳ Menyimpan...' : '💾 Simpan Perubahan Review'}
-                    </button>
-                    <button onClick={handlePrintPDF} disabled={isGeneratingPDF} className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800/40 text-white font-semibold py-3 px-4 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/20">
-                        {isGeneratingPDF ? '⏳ Memproses Berkas...' : '📥 Unduh Cetak Berkas PDF'}
-                    </button>
-                    <button onClick={() => setPreviewLetter(null)} className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 px-4 rounded-xl text-sm transition border border-slate-700">
-                        Tutup Pratinjau
-                    </button>
-                </div>
-            </div>
+                );
+            };
 
-        </div>
-    );
-})()}
+            // Hitung total halaman yang aktif untuk teks di badge info panel kanan
+            const totalPages = 1 + (Number(previewLetter.progress_status) === 1 ? 1 : 0) + (Number(previewLetter.handover_status) === 1 ? 1 : 0);
+
+            return (
+                <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-sm flex flex-col lg:flex-row overflow-hidden">
+                    
+                    {/* SCREEN PREVIEW KIRI */}
+                    <div className="flex-1 bg-slate-950 p-4 lg:p-8 overflow-y-auto flex flex-col items-center gap-2">
+                        
+                        {/* Lembar BAP (Selalu muncul karena tidak dinonaktifkan) */}
+                        <div className="text-white text-xs font-mono uppercase bg-amber-600/20 px-4 py-1.5 rounded-full mb-2 border border-amber-500/30">Lembar 1: (BAP)</div>
+                        {renderLembarHalaman(
+                            "BERITA ACARA PEMERIKSAAN PEKERJAAN (BAP)",
+                            previewLetter.inspection_date,
+                            previewLetter.inspection_officer_name_1, previewLetter.inspection_officer_role_1,
+                            previewLetter.inspection_officer_name_2, previewLetter.inspection_officer_role_2,
+                            previewLetter.inspection_description, "inspection_description", false
+                        )}
+
+                        {/* Lembar BAPP (Hanya di-render jika progress_status aktif) */}
+                        {Number(previewLetter.progress_status) === 1 && (
+                            <>
+                                <div className="text-white text-xs font-mono uppercase bg-blue-600/20 px-4 py-1.5 rounded-full my-4 border border-blue-500/30">Lembar berikutnya: (BAPP)</div>
+                                {renderLembarHalaman(
+                                    "BERITA ACARA PENYELESAIAN PEKERJAAN (BAPP)",
+                                    previewLetter.progress_date,
+                                    previewLetter.progress_officer_name_1, previewLetter.progress_officer_role_1,
+                                    previewLetter.progress_officer_name_2, previewLetter.progress_officer_role_2,
+                                    previewLetter.progress_description, "progress_description", false
+                                )}
+                            </>
+                        )}
+
+                        {/* Lembar BAST (Hanya di-render jika handover_status aktif) */}
+                        {Number(previewLetter.handover_status) === 1 && (
+                            <>
+                                <div className="text-white text-xs font-mono uppercase bg-emerald-600/20 px-4 py-1.5 rounded-full my-4 border border-emerald-500/30">Lembar berikutnya: (BAST)</div>
+                                {renderLembarHalaman(
+                                    "BERITA ACARA SERAH TERIMA PEKERJAAN (BAST)",
+                                    previewLetter.handover_date,
+                                    previewLetter.handover_officer_name_1, previewLetter.handover_officer_role_1,
+                                    previewLetter.handover_officer_name_2, previewLetter.handover_officer_role_2,
+                                    previewLetter.handover_description, "handover_description", true
+                                )}
+                            </>
+                        )}
+                    </div>
+
+                    {/* PANEL KONTROL KANAN */}
+                    <div className="w-full lg:w-96 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-800 p-6 flex flex-col justify-between shrink-0">
+                        <div className="space-y-6">
+                            <div>
+                                <h4 className="text-white font-bold text-lg">Pratinjau Dokumen Resmi</h4>
+                                <span className="inline-flex items-center mt-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-900/50 text-indigo-300 border border-indigo-800">
+                                    Format {totalPages} Halaman Berkas Aktif
+                                </span>
+                                <p className="text-xs text-slate-400 mt-2">Gunakan editor langsung di area putih untuk merevisi draft teks sebelum dicetak ke berkas PDF.</p>
+                            </div>
+                            <div className="space-y-3">
+                                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">Jarak Spasi Baris Paragraf</label>
+                                <div className="grid grid-cols-4 gap-2">
+                                    {['1.2', '1.4', '1.6', '1.8'].map((spacing) => (
+                                        <button key={spacing} onClick={() => setDocLineSpacing(spacing)} className={`py-2 text-xs font-mono rounded-lg border transition ${docLineSpacing === spacing ? 'bg-indigo-600 border-indigo-500 text-white font-bold' : 'border-slate-700 bg-slate-800/50 text-slate-300 hover:bg-slate-800'}`}>
+                                            {spacing}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="space-y-3 pt-6 border-t border-slate-800">
+                            <button onClick={handleUpdateFromPreview} disabled={isSaving} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-xl text-sm transition">
+                                {isSaving ? '⏳ Menyimpan...' : '💾 Simpan Perubahan Review'}
+                            </button>
+                            <button onClick={handlePrintPDF} disabled={isGeneratingPDF} className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800/40 text-white font-semibold py-3 px-4 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/20">
+                                {isGeneratingPDF ? '⏳ Memproses Berkas...' : '📥 Unduh Cetak Berkas PDF'}
+                            </button>
+                            <button onClick={() => setPreviewLetter(null)} className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium py-3 px-4 rounded-xl text-sm transition border border-slate-700">
+                                Tutup Pratinjau
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+            );
+        })()}
         </div>
     );
 };

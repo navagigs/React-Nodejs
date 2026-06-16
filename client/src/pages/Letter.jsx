@@ -6,28 +6,97 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { LETTER_URL, CLIENT_URL } from '../Api';
 
-const angkaKeTerbilang = (num) => {
-  const nilai = Math.floor(Math.abs(num));
-  const huruf = ["", "Satu", "Dua", "Tiga", "Empat", "Lima", "Enam", "Tujuh", "Delapan", "Sembilan", "Sepuluh", "Sebelas"];
-  let terbilang = "";
-
-  if (nilai < 12) terbilang = " " + huruf[nilai];
-  else if (nilai < 20) terbilang = angkaKeTerbilang(nilai - 10) + " Belas";
-  else if (nilai < 100) terbilang = " " + angkaKeTerbilang(nilai / 10) + " Puluh " + angkaKeTerbilang(nilai % 10);
-  else if (nilai < 200) terbilang = " Seratus" + angkaKeTerbilang(nilai - 100);
-  else if (nilai < 1000) terbilang = " " + angkaKeTerbilang(nilai / 100) + " Ratus " + angkaKeTerbilang(nilai % 100);
-  else if (nilai < 2000) terbilang = " Seribu" + angkaKeTerbilang(nilai - 1000);
-  else if (nilai < 1000000) terbilang = " " + angkaKeTerbilang(nilai / 1000) + " Ribu " + angkaKeTerbilang(nilai % 1000);
-  else if (nilai < 1000000000) terbilang = " " + angkaKeTerbilang(nilai / 1000000) + " Juta " + angkaKeTerbilang(nilai % 1000000);
-  else if (nilai < 1000000000000) terbilang = " " + angkaKeTerbilang(nilai / 1000000000) + " Milyar " + angkaKeTerbilang(nilai % 1000000000);
-  
-  return terbilang.trim();
-};
-
 const formatRupiah = (angka) => {
-  return new Intl.NumberFormat("id-ID").format(angka);
+  return new Intl.NumberFormat("id-ID", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(angka);
 };
 
+// // JSX
+// {formatRupiah(activeCalc.total).replace(/,00$/, '')}
+
+const angkaKeTerbilang = (angka) => {
+  if (angka === null || angka === undefined || isNaN(angka)) {
+    return "Nol Rupiah";
+  }
+
+  angka = Math.floor(Number(angka));
+
+  if (angka === 0) {
+    return "Nol Rupiah";
+  }
+
+  const penyebut = (nilai) => {
+    nilai = Math.floor(Math.abs(nilai));
+
+    const huruf = [
+      "",
+      "Satu",
+      "Dua",
+      "Tiga",
+      "Empat",
+      "Lima",
+      "Enam",
+      "Tujuh",
+      "Delapan",
+      "Sembilan",
+      "Sepuluh",
+      "Sebelas",
+    ];
+
+    if (nilai < 12) {
+      return huruf[nilai];
+    } else if (nilai < 20) {
+      return penyebut(nilai - 10) + " Belas";
+    } else if (nilai < 100) {
+      return (
+        penyebut(Math.floor(nilai / 10)) +
+        " Puluh " +
+        penyebut(nilai % 10)
+      );
+    } else if (nilai < 200) {
+      return "Seratus " + penyebut(nilai - 100);
+    } else if (nilai < 1000) {
+      return (
+        penyebut(Math.floor(nilai / 100)) +
+        " Ratus " +
+        penyebut(nilai % 100)
+      );
+    } else if (nilai < 2000) {
+      return "Seribu " + penyebut(nilai - 1000);
+    } else if (nilai < 1000000) {
+      return (
+        penyebut(Math.floor(nilai / 1000)) +
+        " Ribu " +
+        penyebut(nilai % 1000)
+      );
+    } else if (nilai < 1000000000) {
+      return (
+        penyebut(Math.floor(nilai / 1000000)) +
+        " Juta " +
+        penyebut(nilai % 1000000)
+      );
+    } else if (nilai < 1000000000000) {
+      return (
+        penyebut(Math.floor(nilai / 1000000000)) +
+        " Miliar " +
+        penyebut(nilai % 1000000000)
+      );
+    } else {
+      return (
+        penyebut(Math.floor(nilai / 1000000000000)) +
+        " Triliun " +
+        penyebut(nilai % 1000000000000)
+      );
+    }
+  };
+
+  const hasil = penyebut(angka).replace(/\s+/g, " ").trim();
+
+  return `${hasil}`;
+};
+ 
 const Letter = () => {
   const [letters, setLetters] = useState([]);
   const [clients, setClients] = useState([]); 
@@ -141,14 +210,27 @@ const Letter = () => {
     setCurrentLetter({ ...currentLetter, invoice_items: updatedItems });
   };
 
-  const calculateInvoiceData = (items) => {
-    const subtotal = items ? items.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0) : 0;
-    const ppn = subtotal * 0.11;
-    const total = subtotal + ppn;
-    const terbilangStr = total > 0 ? `${angkaKeTerbilang(total)} Rupiah` : '-';
-    const terbilangClean = terbilangStr.replace(/\s+/g, ' ');
-    return { subtotal, ppn, total, terbilang: terbilangClean };
-  };
+const calculateInvoiceData = (items) => {
+  // 1. Hitung subtotal dengan aman
+  const subtotal = items ? items.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0) : 0;
+  
+  // 2. Hitung PPN (11%) dan Total
+  const ppn = subtotal * 0.11;
+  const total = subtotal + ppn;
+  
+  // 3. Ambil teks terbilang hanya jika total > 0
+  let terbilangClean = '-';
+  if (total > 0 && typeof angkaKeTerbilang === 'function') {
+    // Math.round digunakan agar nominal desimal PPN dibulatkan dahulu sebelum masuk ke fungsi terbilang
+    const totalDibulatkan = Math.round(total); 
+    const terbilangStr = `${angkaKeTerbilang(totalDibulatkan)} Rupiah`;
+    
+    // Bersihkan spasi berlebih (jika ada) dan rapikan format teksnya
+    terbilangClean = terbilangStr.replace(/\s+/g, ' ').trim();
+  }
+  
+  return { subtotal, ppn, total, terbilang: terbilangClean };
+};
 
   const getClientName = (id) => {
       const client = clients.find(c => c.id == id);
@@ -760,7 +842,7 @@ const Letter = () => {
                   <div className="flex flex-col items-end gap-1 text-xs font-semibold p-4 bg-white rounded-xl border">
                     <div>SUB TOTAL: <span className="font-mono text-sm ml-2">{formatRupiah(activeCalc.subtotal)}</span></div>
                     <div>PPN 11%: <span className="font-mono text-sm ml-2">{formatRupiah(activeCalc.ppn)}</span></div>
-                    <div className="text-indigo-600 pt-1.5 border-t w-full text-right font-bold text-sm">TOTAL KESELURUHAN: <span className="font-mono ml-2 text-base">{formatRupiah(activeCalc.total)}</span></div>
+                    <div className="text-indigo-600 pt-1.5 border-t w-full text-right font-bold text-sm">TOTAL KESELURUHAN: <span className="font-mono ml-2 text-base">{formatRupiah(activeCalc.total).replace(/,\d+$/, '').toString()}</span></div>
                     <div className="text-gray-400 italic font-medium w-full text-right mt-1">Terbilang: "{activeCalc.terbilang}"</div>
                   </div>
                 </div>
@@ -829,6 +911,12 @@ const Letter = () => {
                   font-size: 14px !important; 
                   color: #000000 !important; 
                 }
+                /* Tambahkan ini di file CSS global Anda (misal: index.css / App.css) */
+                .editable-preview-area .ql-editor { 
+                  height: auto !important;
+                  overflow-y: visible !important;
+                  padding-bottom: 1px !important; /* Memberikan napas di baris terakhir */
+                }
               `}</style>
 
               {/* ==================== HALAMAN 1: SURAT UTAMA / INVOICE ==================== */}
@@ -860,12 +948,27 @@ const Letter = () => {
 
                       {/* Spacer / Jarak buatan sebelum Baris Perihal */}
                       <tr><td colSpan={4} className="h-4"></td></tr>
-                      
-                      <tr>
-                        <td className="py-0.5">Perihal</td>
-                        <td>:</td>
-                        <td colSpan={2} className="font-bold py-0.5">{previewLetter.subject}</td>
-                      </tr>
+                    {previewLetter.letter_type === 'INVOICE' && previewLetter.invoice_items ? (
+                        // --- JIKA TRUE (INVOICE) ---
+                        <tr>
+                          <td className="py-0.5">Perihal</td>
+                          <td>:</td>
+                          <td colSpan={2} className="font-bold py-0.5">
+                            {previewLetter.subject 
+                              ? previewLetter.subject.split(/\s+/).slice(0, 2).join(' ') 
+                              : ''}
+                          </td>
+                        </tr>
+                      ) : (
+                        // --- JIKA FALSE (ELSE / BUKAN INVOICE) ---
+                        <tr>
+                          <td className="py-0.5">Perihal</td>
+                          <td>:</td>
+                          <td colSpan={2} className="font-bold py-0.5 text-gray-500"> 
+                            {previewLetter.subject}
+                          </td>
+                        </tr>
+                      )}
 
                     </tbody>
                   </table>
@@ -877,58 +980,68 @@ const Letter = () => {
 
                   {/* Tabel Berdasarkan Gambar */}
                   {previewLetter.letter_type === 'INVOICE' && previewLetter.invoice_items && (() => {
-                    const page1Calc = calculateInvoiceData(previewLetter.invoice_items);
-                    return (
-                      <div className="mt-2 w-full mb-4">
-                        <table className="w-full text-[14px] border-collapse" style={{ border: '1px solid #000000' }}>
-                          <thead>
-                            <tr className="bg-gray-50 font-bold text-black">
-                              <th style={{ border: '1px solid #000000', width: '10%', padding: '8px', textAlign: 'center' }}>NO</th>
-                              <th style={{ border: '1px solid #000000', padding: '8px', textAlign: 'left' }}>KETERANGAN</th>
-                              <th style={{ border: '1px solid #000000', width: '30%', padding: '8px', textAlign: 'center' }}>JUMLAH (Rp)</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {previewLetter.invoice_items.map((item, idx) => (
-                              <tr key={idx}>
-                                <td style={{ border: '1px solid #000000', padding: '8px', textAlign: 'center' }}>{idx + 1}</td>
-                                <td style={{ border: '1px solid #000000', padding: '8px' }}>{item.item_name || '-'}</td>
-                                <td style={{ border: '1px solid #000000', padding: '8px', textAlign: 'right', fontClassName: 'monospace' }}>
-                                  Rp{formatRupiah(item.amount || 0)}
-                                </td>
-                              </tr>
-                            ))}
-                            <tr>
-                              <td colSpan={2} style={{ border: '1px solid #000000', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>SUB TOTAL</td>
-                              <td style={{ border: '1px solid #000000', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>Rp{formatRupiah(page1Calc.subtotal)}</td>
-                            </tr>
-                            <tr>
-                              <td colSpan={2} style={{ border: '1px solid #000000', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>PPN 11%</td>
-                              <td style={{ border: '1px solid #000000', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>Rp{formatRupiah(page1Calc.ppn)}</td>
-                            </tr>
-                            <tr>
-                              <td colSpan={2} style={{ border: '1px solid #000000', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>TOTAL KESELURUHAN</td>
-                              <td style={{ border: '1px solid #000000', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>Rp{formatRupiah(page1Calc.total)}</td>
-                            </tr>
-                            <tr>
-                              <td colSpan={3} style={{ border: '1px solid #000000', padding: '8px', textAlign: 'left' }}>
-                                <strong>Terbilang:</strong> <em>"{page1Calc.terbilang}"</em>
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    );
-                  })()}
+  const page1Calc = calculateInvoiceData(previewLetter.invoice_items);
+  return (
+    <div className="mt-2 w-full mb-4">
+      <table className="w-full text-[14px] border-collapse" style={{ border: '1px solid #000000' }}>
+        <thead>
+          <tr className="bg-gray-50 font-bold text-black">
+            <th style={{ border: '1px solid #000000', width: '10%', padding: '8px', textAlign: 'center' }}>NO</th>
+            <th style={{ border: '1px solid #000000', padding: '8px', textAlign: 'left' }}>KETERANGAN</th>
+            {/* Diubah ke textAlign: 'right' agar sejajar dengan isi nominal uang di bawahnya */}
+            <th style={{ border: '1px solid #000000', width: '30%', padding: '8px', textAlign: 'right' }}>JUMLAH (Rp)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {previewLetter.invoice_items.map((item, idx) => (
+            <tr key={idx}>
+              <td style={{ border: '1px solid #000000', padding: '8px', textAlign: 'center' }}>{idx + 1}</td>
+              <td style={{ border: '1px solid #000000', padding: '8px', textAlign: 'left' }}>{item.item_name || '-'}</td>
+              {/* Diubah dari fontClassName menjadi fontFamily agar font monospace aktif */}
+              <td style={{ border: '1px solid #000000', padding: '8px', textAlign: 'right', fontFamily: 'monospace' }}>
+                Rp{formatRupiah(item.amount || 0)}
+              </td>
+            </tr>
+          ))}
+          
+          {/* Baris Total: Teks keterangan rata kanan, nominal angka rata kanan */}
+          <tr>
+            <td colSpan={2} style={{ border: '1px solid #000000', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>SUB TOTAL</td>
+            <td style={{ border: '1px solid #000000', padding: '8px', textAlign: 'right', fontWeight: 'bold', fontFamily: 'monospace' }}>Rp{formatRupiah(page1Calc.subtotal)}</td>
+          </tr>
+          <tr>
+            <td colSpan={2} style={{ border: '1px solid #000000', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>PPN 11%</td>
+            <td style={{ border: '1px solid #000000', padding: '8px', textAlign: 'right', fontWeight: 'bold', fontFamily: 'monospace' }}>Rp{formatRupiah(page1Calc.ppn)}</td>
+          </tr>
+          <tr>
+            <td colSpan={2} style={{ border: '1px solid #000000', padding: '8px', textAlign: 'right', fontWeight: 'bold' }}>TOTAL KESELURUHAN</td>
+            <td style={{ border: '1px solid #000000', padding: '8px', textAlign: 'right', fontWeight: 'bold', fontFamily: 'monospace' }}>Rp{formatRupiah(page1Calc.total)}</td>
+          </tr>
+          
+          {/* Baris Terbilang: Rata kiri untuk kenyamanan membaca kalimat panjang */}
+          <tr>
+            <td colSpan={3} style={{ border: '1px solid #000000', padding: '8px', textAlign: 'left' }}>
+              <strong>Terbilang:</strong> <em style={{ marginLeft: '4px' }}>"{page1Calc.terbilang}"</em>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+})()}
 
                   {/* Teks Catatan / Penutup */}
-                  <div className="editable-preview-area mt-4 mb-4">
-                     
-                    <ReactQuill theme="snow" modules={sharedModules} value={previewLetter.description_closing || ''} onChange={(content) => setPreviewLetter({...previewLetter, description_closing: content})} />
+                  <div className="editable-preview-area mt-1 mb-1 [&_.ql-editor]:min-h-[80px] [&_.ql-editor]:pb-4">
+                    <ReactQuill 
+                      theme="snow" 
+                      modules={sharedModules} 
+                      value={previewLetter.description_closing || ''} 
+                      onChange={(content) => setPreviewLetter({...previewLetter, description_closing: content})} 
+                    />
                   </div>
                   
                   {/* Bagian Tanda Tangan Halaman 1 */}
-                  <div className="flex justify-start text-[14px] mt-6">
+                  <div className="flex justify-start text-[14px] mt-1">
                     <div className="text-left" style={{ minWidth: '220px' }}>
                       <div className="text-black mb-0.5">Hormat kami,</div>
                       <div className="h-[75px] flex items-center justify-start"></div>
@@ -958,46 +1071,73 @@ const Letter = () => {
                     {(() => {
                       const pCalc = calculateInvoiceData(previewLetter.invoice_items);
                       return (
-                        <div className="space-y-4 bg-gray-50/50 p-6 rounded-xl border border-gray-200 mb-6">
-                          <table className="w-full text-[14px] border-collapse">
-                            <tbody>
-                              <tr className="align-top">
-                                <td className="py-2.5 text-gray-600 uppercase tracking-wider text-xs font-bold" style={{ width: "160px" }}>Telah Terima Dari</td>
-                                <td className="py-2.5" style={{ width: "20px" }}>:</td>
-                                <td className="py-2.5 font-bold text-gray-900 border-b border-dashed border-gray-300">
-                                  {previewLetter.recipient}
-                                </td>
-                              </tr>
-                              <tr className="align-top">
-                                <td className="py-2.5 text-gray-600 uppercase tracking-wider text-xs font-bold">Uang Sejumlah</td>
-                                <td>:</td>
-                                <td className="py-2.5 italic text-gray-800 font-medium bg-white px-1 py-2 rounded border border-gray-100 shadow-sm leading-relaxed">
-                                  "{pCalc.terbilang}"
-                                </td>
-                              </tr>
-                              <tr className="align-top">
-                                <td className="py-2.5 text-gray-600 uppercase tracking-wider text-xs font-bold">Untuk Pembayaran</td>
-                                <td>:</td>
-                                <td className="py-2.5 text-gray-800 border-b border-dashed border-gray-300">
-                                  {/* Filter penghilang kata PERMOHONAN secara bersih */}
-                                  {previewLetter.subject ? previewLetter.subject.replace(/PERMOHONAN\s*/gi, '').replace(/\s+/g, ' ').trim() : '-'}
-                                </td>
-                              </tr>
-                            </tbody>
-                          </table>
+                         <div className="relative overflow-hidden bg-white p-6 md:p-8 rounded-2xl border border-gray-200/80 shadow-sm mb-6 before:absolute before:top-0 before:left-0 before:w-1.5 before:h-full before:bg-orange-500">
+                          
+                          {/* Konten Utama Form Kwitansi */}
+                          <div className="space-y-4 text-sm">
+                            
+                            {/* Baris 1: Telah Terima Dari */}
+                            <div className="grid grid-cols-1 md:grid-cols-12 gap-1 md:gap-4 items-start pb-3 border-b border-gray-100">
+                              <div className="md:col-span-3 text-xs font-bold uppercase tracking-wider text-gray-500 pt-0.5">
+                                Telah Terima Dari
+                              </div>
+                              <div className="hidden md:block md:col-span-1 text-gray-400 text-center">:</div>
+                              <div className="md:col-span-8 font-semibold text-gray-900 text-base">
+                                {previewLetter.recipient}
+                              </div>
+                            </div>
 
-                          {/* Badge Nominal Besar */}
-                          <div className="mt-8 pt-4 flex items-center justify-between">
-                            <div className="inline-flex items-center gap-4 bg-orange-50 border-2 border-orange-500 px-6 py-3 rounded-xl shadow-inner">
-                              <span className="font-mono text-xs font-bold text-orange-700 tracking-wider uppercase">Jumlah Terbayar</span>
-                              <span className="font-mono text-xl font-black text-orange-900">
-                                Rp. {formatRupiah(pCalc.total)}
-                              </span>
+                            {/* Baris 2: Uang Sejumlah (Terbilang) */}
+                            <div className="grid grid-cols-1 md:grid-cols-12 gap-1 md:gap-4 items-start py-2">
+                              <div className="md:col-span-3 text-xs font-bold uppercase tracking-wider text-gray-500 pt-2">
+                                Uang Sejumlah
+                              </div>
+                              <div className="hidden md:block md:col-span-1 text-gray-400 text-center">:</div>
+                              <div className="md:col-span-8">
+                                <div className="rounded-xl text-slate-800 font-medium italic  text-[15px]">
+                                  "{pCalc.terbilang}"
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Baris 3: Untuk Pembayaran */}
+                            <div className="grid grid-cols-1 md:grid-cols-12 gap-1 md:gap-4 items-start pt-3">
+                              <div className="md:col-span-3 text-xs font-bold uppercase tracking-wider text-gray-500 pt-0.5">
+                                Untuk Pembayaran
+                              </div>
+                              <div className="hidden md:block md:col-span-1 text-gray-400 text-center">:</div>
+                              <div className="md:col-span-8 text-gray-700 leading-relaxed font-medium text-slate-800 ">
+                                {previewLetter.first_item_name}
+                              </div>
+                            </div>
+
+                          </div>
+
+                          {/* Bagian Bawah: Nominal & Tanggal */}
+                          <div className="mt-8 pt-6 border-t border-dashed border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                            
+                            {/* Badge Nominal Besar */}
+                            <div className="inline-flex items-center gap-4 bg-gradient-to-r from-orange-50 to-amber-50/50 border border-orange-200/80 pl-5 pr-7 py-3.5 rounded-2xl shadow-sm">
+                              <div className="flex flex-col">
+                                <span className="font-sans text-[10px] font-bold text-orange-600 tracking-widest uppercase mb-0.5">
+                                  Jumlah Terbayar
+                                </span>
+                                <span className="font-mono text-2xl font-extrabold text-slate-900 tracking-tight">
+                                  Rp{formatRupiah(pCalc.total)},-
+                                </span>
+                              </div>
                             </div>
                             
-                            <div className="text-right text-xs text-gray-500 font-medium italic">
-                              {previewLetter.letter_location || 'Bandung'}, {formatDateLong(previewLetter.letter_date)}
+                            {/* Tempat & Tanggal */}
+                            <div className="sm:text-right flex flex-col sm:justify-end">
+                              <span className="text-[11px] text-gray-400 uppercase tracking-wider font-semibold mb-0.5">
+                                Tempat & Tanggal Dokumen
+                              </span>
+                              <span className="text-sm text-gray-700 font-medium">
+                                {previewLetter.letter_location || 'Bandung'}, {formatDateLong(previewLetter.letter_date)}
+                              </span>
                             </div>
+
                           </div>
                         </div>
                       );
@@ -1007,9 +1147,9 @@ const Letter = () => {
                     <div className="flex justify-start text-[14px] mt-6">
                       <div className="text-left" style={{ minWidth: '220px' }}>
                         <div className="text-black mb-0.5">Hormat kami,</div>
-                        <div className="h-[85px] flex items-center justify-start"></div>
+                        <div className="h-[115px] flex items-center justify-start"></div>
                         <div className="font-bold underline text-black">{previewLetter.signer_name || '-'}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">{previewLetter.signer_position || '-'}</div>
+                        <div className="text-xs text-gray-500 mt-.5">{previewLetter.signer_position || '-'}</div>
                       </div>
                     </div>
 

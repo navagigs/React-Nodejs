@@ -567,6 +567,71 @@ app.delete('/api/letters/:id', (req, res) => {
 // =========================================================================
 // 1. GET - Mengambil SEMUA Data Surat (GENERAL & INVOICE) beserta Itemnya
 // =========================================================================
+// app.get('/api/letters/invoice', (req, res) => {
+//     // Ambil SEMUA surat terlebih dahulu agar dijamin muncul di list React
+//     const sqlLetters = `
+//         SELECT l.*, c.name AS client_name, c.address AS client_address 
+//         FROM letters l
+//         LEFT JOIN client c ON l.client_id = c.id 
+//         ORDER BY l.id DESC
+//     `;
+
+//     db.query(sqlLetters, (err, letters) => {
+//         if (err) return res.status(500).json({ success: false, error: err.message });
+//         if (!letters || letters.length === 0) return res.json([]);
+
+//         // Ambil SEMUA item invoice untuk digabungkan di memori Node.js
+//         const sqlItems = `SELECT id, letter_id, item_name, amount FROM invoice_items`;
+        
+//         db.query(sqlItems, (err, items) => {
+//             if (err) return res.status(500).json({ success: false, error: err.message });
+
+//             // Kelompokkan item berdasarkan letter_id
+//             const itemsMap = {};
+//             if (items && items.length > 0) {
+//                 items.forEach(item => {
+//                     if (!itemsMap[item.letter_id]) {
+//                         itemsMap[item.letter_id] = [];
+//                     }
+//                     itemsMap[item.letter_id].push({
+//                         id: item.id,
+//                         item_name: item.item_name,
+//                         amount: item.amount
+//                     });
+//                 });
+//             }
+
+//             // Gabungkan item ke suratnya masing-masing
+//             const result = letters.map(letter => {
+//                 // Pastikan jika tipenya kosong/null di database, dibaca sebagai GENERAL
+//                 let type = letter.letter_type ? letter.letter_type.toUpperCase() : 'GENERAL';
+                
+//                 return {
+//                     id: letter.id,
+//                     client_id: letter.client_id,
+//                     client_name: letter.client_name || 'Klien Tidak Diketahui',
+//                     client_address: letter.client_address || 'Di Tempat',
+//                     letter_number: letter.letter_number,
+//                     letter_type: type, 
+//                     subject: letter.subject || '',
+//                     letter_location: letter.letter_location || '',
+//                     letter_date: letter.letter_date,
+//                     recipient: letter.recipient || '',
+//                     description: letter.description || '',          
+//                     description_closing: letter.description_closing || '',  
+//                     signer_name: letter.signer_name || '',
+//                     signer_position: letter.signer_position || '',
+//                     attachment: letter.attachment || '',
+//                     // Hanya pasang array rincian jika bertipe INVOICE
+//                     invoice_items: type === 'INVOICE' ? (itemsMap[letter.id] || []) : []
+//                 };
+//             });
+
+//             return res.json(result);
+//         });
+//     });
+// });
+
 app.get('/api/letters/invoice', (req, res) => {
     // Ambil SEMUA surat terlebih dahulu agar dijamin muncul di list React
     const sqlLetters = `
@@ -606,6 +671,9 @@ app.get('/api/letters/invoice', (req, res) => {
                 // Pastikan jika tipenya kosong/null di database, dibaca sebagai GENERAL
                 let type = letter.letter_type ? letter.letter_type.toUpperCase() : 'GENERAL';
                 
+                // Ambil list items untuk letter saat ini
+                const currentInvoiceItems = type === 'INVOICE' ? (itemsMap[letter.id] || []) : [];
+                
                 return {
                     id: letter.id,
                     client_id: letter.client_id,
@@ -622,8 +690,9 @@ app.get('/api/letters/invoice', (req, res) => {
                     signer_name: letter.signer_name || '',
                     signer_position: letter.signer_position || '',
                     attachment: letter.attachment || '',
-                    // Hanya pasang array rincian jika bertipe INVOICE
-                    invoice_items: type === 'INVOICE' ? (itemsMap[letter.id] || []) : []
+                    // Properti baru tepat di bawah attachment
+                    first_item_name: currentInvoiceItems.length > 0 ? currentInvoiceItems[0].item_name : '',
+                    invoice_items: currentInvoiceItems
                 };
             });
 
