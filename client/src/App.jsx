@@ -11,6 +11,9 @@ import Clients from './pages/Clients';
 import Category from './pages/Category'; 
 import News from './pages/News'; 
 import MenuManagement from './pages/MenuManagement'; 
+import RoleManagement from './pages/RoleManagement'; 
+import UserManagement from './pages/UserManagement'; 
+import ModuleAuthority from './pages/ModuleAuthority'; 
 import LandingPageCrop from './LandingPageCrop copy';  
 
 function App() {
@@ -31,16 +34,16 @@ function App() {
             
 
             {/* Jika URL /clients -> Tampilkan Tabel clients */}
-            <Route path="/clients" element={<Clients />} />
+            <Route path="internal/clients" element={<Clients />} />
 
             {/* Jika URL /project-documents -> Tampilkan Tabel project documents */}
-            <Route path="/project-documents" element={<ProjectDocument />} />
+            <Route path="internal/project-documents" element={<ProjectDocument />} />
  
             {/* Jika URL /letter -> Tampilkan Tabel letter */}
-            <Route path="/letter" element={<Letter />} />
+            <Route path="internal/letter" element={<Letter />} />
 
             {/* Jika URL /portfolio -> Tampilkan Tabel Portfolio */}
-            <Route path="/portfolio" element={<Portfolio />} />
+            <Route path="internal/portfolio" element={<Portfolio />} />
 
 
             {/* Jika URL /category -> Tampilkan Tabel category */}
@@ -50,7 +53,10 @@ function App() {
             <Route path="/news" element={<News />} />
 
 
-            <Route path="/menu" element={<MenuManagement />} />
+            <Route path="/hak-akses/menu" element={<MenuManagement />} />
+            <Route path="/hak-akses/role" element={<RoleManagement />} />
+            <Route path="/hak-akses/user" element={<UserManagement />} />
+            <Route path="/hak-akses/module-authority" element={<ModuleAuthority />} />
 
             {/* Jika URL /OrderDetail -> Tampilkan Tabel OrderDetail */} 
             <Route path="/orders/detail" element={<OrderDetail />} />

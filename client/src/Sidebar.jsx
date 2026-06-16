@@ -1,55 +1,116 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom'; 
+import { useNavigate } from 'react-router-dom'; 
 import * as Icons from 'lucide-react';
+import { MENU_URL_ACCESS_BY_ROLE } from './Api';
 
 // --- KOMPONEN SINGLE MENU ---
-const SingleMenuItem = ({ title, icon: Icon, onClick, isActive, className = '' }) => {
+const SingleMenuItem = ({ title, icon, onClick, isActive, className = '' }) => {
+  const TargetIcon = typeof icon === 'string' ? Icons[icon] : icon;
+
   return (
     <div 
         onClick={onClick}
-        className={`flex items-center gap-3 px-4 py-3 mx-2 rounded-lg cursor-pointer transition-colors ${
+        className={`flex items-center gap-3 px-4 py-3 mx-2 rounded-lg cursor-pointer transition-all duration-200 ${
             isActive 
-            ? 'bg-indigo-50 text-indigo-600' 
+            ? 'bg-indigo-50 text-indigo-600 font-semibold shadow-sm' 
             : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
         } ${className}`}
     >
-        {/* Render Icon jika ada */}
-        {Icon && <Icon className="w-5 h-5" />}
-        <span className="font-medium text-sm">{title}</span>
+        {TargetIcon ? (
+            <TargetIcon className="w-5 h-5" />
+        ) : (
+            <Icons.Folder className="w-5 h-5 opacity-40" />
+        )}
+        <span className="text-sm">{title}</span>
     </div>
   );
 };
 
 const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
   const navigate = useNavigate();
-  const location = useLocation(); 
-  const [isAccessDropdownOpen, setIsAccessDropdownOpen] = useState(false);
-  const [isBackupDropdownOpen, setIsBackupDropdownOpen] = useState(false);
-  const [isAdminDropdownOpen, setIsAdminDropdownOpen] = useState(false);
+  
+  const [menus, setMenus] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
+  // --- STATE UNTUK MENCATAT YANG AKTIF SAAT DIKLIK ---
+  const [activeMenuId, setActiveMenuId] = useState(null); 
+  const [activeParentId, setActiveParentId] = useState(null); 
+  const [openDropdowns, setOpenDropdowns] = useState({}); 
 
-  // State khusus untuk Dropdown Berita
-  const [isNewsDropdownOpen, setIsNewsDropdownOpen] = useState(false);
-
-  // Effect: Otomatis buka dropdown jika URL aktif adalah sub-menu berita
+ 
+  // 1. Ambil data Menu langsung berdasarkan Role ID dari Database
   useEffect(() => {
-    if (location.pathname === '/news' || location.pathname === '/category') {
-      setIsNewsDropdownOpen(true);
+    // Kita tetap butuh role_id dari user yang login untuk tahu dia siapa
+    const currentRoleId = localStorage.getItem('role_id'); 
+    
+    if (!currentRoleId) {
+      console.error("Role ID tidak ditemukan di storage, pastikan sudah login.");
+      setLoading(false);
+      return;
     }
-  }, [location.pathname]);
 
-  // Fungsi navigasi
-  const handleNavigation = (path) => {
-      navigate(path);
-      if (window.innerWidth < 768) setIsMobileOpen(false); 
+    // Panggil API baru yang langsung melakukan filter di MySQL server
+    fetch(`${MENU_URL_ACCESS_BY_ROLE}/${currentRoleId}`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Gagal mengambil data menu berizin");
+        return res.json();
+      })
+      .then((data) => {
+        const allowedMenus = Array.isArray(data) ? data : [];
+        
+        // Langsung pasang ke state tanpa perlu filter manual di frontend lagi!
+        setMenus(allowedMenus);
+        setLoading(false);
+
+        // Set menu aktif default dari menu pertama yang diizinkan
+        if (allowedMenus.length > 0) {
+            if (allowedMenus[0].subs && allowedMenus[0].subs.length > 0) {
+                setActiveMenuId(allowedMenus[0].subs[0].menu_id);
+                setActiveParentId(allowedMenus[0].menu_id);
+                setOpenDropdowns({ [allowedMenus[0].menu_id]: true });
+            } else {
+                setActiveMenuId(allowedMenus[0].menu_id);
+            }
+        }
+      })
+      .catch((err) => {
+        console.error("Gagal memuat menu sidebar:", err);
+        setLoading(false);
+      });
+  }, []);
+
+  // 2. Fungsi ketika Parent Dropdown diklik
+  const handleParentClick = (menuId) => {
+    setOpenDropdowns(prev => ({
+      ...prev,
+      [menuId]: !prev[menuId]
+    }));
   };
 
-  // Cek apakah parent "Berita" harus aktif
-  const isNewsActive = location.pathname === '/news' || location.pathname === '/category';
+  // 3. Fungsi ketika Menu Biasa / Sub-Menu diklik (Navigasi & Set Aktif)
+  const handleItemClick = (menuId, parentId, path) => {
+    setActiveMenuId(menuId);     
+    setActiveParentId(parentId); 
+    
+    if (path) {
+        navigate(path);
+    }
+    
+    if (window.innerWidth < 768) setIsMobileOpen(false); 
+  };
+
+  if (loading) {
+    return (
+      <aside className="w-64 bg-white border-r border-gray-100 flex items-center justify-center">
+        <span className="text-gray-400 text-sm animate-pulse">Loading Menu...</span>
+      </aside>
+    );
+  }
 
   return (
     <>
-       {/* Overlay Mobile */}
-       {isMobileOpen && <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={() => setIsMobileOpen(false)}></div>}
+      {/* Overlay Mobile */}
+      {isMobileOpen && <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={() => setIsMobileOpen(false)}></div>}
 
       <aside className={`fixed md:static inset-y-0 left-0 z-30 w-64 bg-white border-r border-gray-100 transform transition-transform duration-300 ease-in-out ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
         
@@ -58,226 +119,80 @@ const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
             <h1 className="text-2xl font-bold text-indigo-600">Admin<span className="text-gray-800">Panel</span></h1>
         </div>
 
-        <nav className="mt-6 px-2 space-y-1">
-            
-          {/* 1. Dashboard */}
-          <SingleMenuItem 
-             title="Dashboard" 
-             icon={Icons.Home} 
-             isActive={location.pathname === '/dashboard'} 
-             onClick={() => handleNavigation('/dashboard')}
-          /> 
-
-          {/* 2. Client */}
-          <SingleMenuItem 
-             title="Client" 
-             icon={Icons.Users} // Saya ganti ke Users biar lebih cocok
-             isActive={location.pathname === '/clients'} 
-             onClick={() => handleNavigation('/clients')} 
-          />
+        <nav className="mt-6 px-2 space-y-1 overflow-y-auto max-h-[calc(100vh-5rem)]">
           
-        <SingleMenuItem 
-        title="Project Documents" 
-        icon={Icons.FileText} // Lebih representatif untuk lembaran dokumen/berkas berita acara
-        isActive={location.pathname === '/project-documents'} 
-        onClick={() => handleNavigation('/project-documents')} 
-        />
+          {menus.map((menu) => {
+            const menuTitle = menu.menu_name || menu.title;
+            const menuUrl = menu.menu_url || menu.url;
+            const menuIconStr = menu.menu_icon || menu.icon;
 
-          <SingleMenuItem 
-            title="Surat Keluar" 
-            icon={Icons.Mail} // Menggunakan ikon Mail/Envelope agar lebih representatif untuk surat
-            isActive={location.pathname === '/letter'} 
-            onClick={() => handleNavigation('/letter')} 
-          />
+            const hasChildren = menu.subs && menu.subs.length > 0;
+            
+            const isParentActive = activeMenuId === menu.menu_id || activeParentId === menu.menu_id;
+            const isOpen = !!openDropdowns[menu.menu_id];
+            
+            const ParentIcon = Icons[menuIconStr] || Icons.Folder;
 
+            // KONDISI A: DROPDOWN (HANYA MUNCUL JIKA SEBELUMNYA SUBS TIDAK KOSONG)
+            if (hasChildren) {
+              return (
+                <div key={menu.menu_id} className="pt-1 pb-1">
+                  <button 
+                      onClick={() => handleParentClick(menu.menu_id)}
+                      className={`w-full flex items-center justify-between px-4 py-3 mx-2 rounded-lg cursor-pointer transition-colors max-w-[calc(100%-16px)] ${
+                          isParentActive 
+                          ? 'text-indigo-600 bg-indigo-50/50 font-semibold' 
+                          : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                      }`}
+                  >
+                      <div className="flex items-center gap-3">
+                          <ParentIcon className="w-5 h-5" />
+                          <span className="text-sm">{menuTitle}</span>
+                      </div>
+                      <Icons.ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+                  </button>
 
-          {/* 3. Portfolio */}
-          <SingleMenuItem 
-             title="Portfolio" 
-             icon={Icons.Briefcase} // Saya ganti ke Briefcase biar variatif
-             isActive={location.pathname === '/portfolio'} 
-             onClick={() => handleNavigation('/portfolio')} 
-          />
+                  {/* Wrapper Sub-Menu */}
+                  <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-96 opacity-100 mt-1' : 'max-h-0 opacity-0'}`}>
+                      <div className="space-y-1 relative">
+                          <div className={`absolute left-[34px] top-0 bottom-0 w-0.5 transition-colors ${isParentActive ? 'bg-indigo-200' : 'bg-gray-100'}`}></div>
 
-          {/* ================================================= */}
-          {/* 4. DROPDOWN MANAJEMEN BERITA (GABUNGAN)           */}
-          {/* ================================================= */}
-          <div className="pt-2 pb-1">
-            <button 
-                onClick={() => setIsNewsDropdownOpen(!isNewsDropdownOpen)}
-                className={`w-full flex items-center justify-between px-4 py-3 mx-2 rounded-lg cursor-pointer transition-colors max-w-[calc(100%-16px)] ${
-                    isNewsActive 
-                    ? 'bg-indigo-50 text-indigo-600' 
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                }`}
-            >
-                <div className="flex items-center gap-3">
-                    <Icons.Newspaper className="w-5 h-5" />
-                    <span className="font-medium text-sm"> News</span>
+                          {menu.subs.map((child) => {
+                            const childTitle = child.menu_name || child.title;
+                            const childUrl = child.menu_url || child.url;
+                            const childIconStr = child.menu_icon || child.icon;
+                            
+                            const isChildActive = activeMenuId === child.menu_id;
+
+                            return (
+                              <SingleMenuItem 
+                                  key={child.menu_id}
+                                  title={childTitle} 
+                                  icon={childIconStr || null}
+                                  isActive={isChildActive}
+                                  onClick={() => handleItemClick(child.menu_id, menu.menu_id, childUrl)} 
+                                  className="pl-12 !mx-2 text-sm"
+                              />
+                            );
+                          })}
+                      </div>
+                  </div>
                 </div>
-                {/* Chevron Icon Animation */}
-                <Icons.ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isNewsDropdownOpen ? 'rotate-180' : ''}`} />
-            </button>
+              );
+            }
 
-            {/* Sub Menu Container */}
-            <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isNewsDropdownOpen ? 'max-h-40 opacity-100 mt-1' : 'max-h-0 opacity-0'}`}>
-                <div className="space-y-1 relative">
-                    {/* Garis vertikal penanda sub-menu */}
-                    <div className="absolute left-[34px] top-0 bottom-0 w-0.5 bg-gray-100"></div>
-
-                    {/* Sub-menu 1: Daftar Berita */}
-                    <SingleMenuItem 
-                        title="News" 
-                        // Tidak perlu icon di sub-menu agar bersih, atau bisa pakai Icons.Dot
-                        isActive={location.pathname === '/news'} 
-                        onClick={() => handleNavigation('/news')} 
-                        className="pl-12 !mx-2 text-sm" // Indentasi khusus
-                    />
-
-                    {/* Sub-menu 2: Kategori */}
-                    <SingleMenuItem 
-                        title="Category" 
-                        isActive={location.pathname === '/category'} 
-                        onClick={() => handleNavigation('/category')}
-                        className="pl-12 !mx-2 text-sm" // Indentasi khusus
-                    />
-                </div>
-            </div>
-          </div>
-
-         {/* ================================================= */}
-{/* 1. DROPDOWN ACCESS MANAGEMENT                    */}
-{/* ================================================= */}
-<div className="pt-2 pb-1">
-  <button 
-      onClick={() => setIsAccessDropdownOpen(!isAccessDropdownOpen)}
-      className={`w-full flex items-center justify-between px-4 py-3 mx-2 rounded-lg cursor-pointer transition-colors max-w-[calc(100%-16px)] ${
-          location.pathname.startsWith('/hak_akses') 
-          ? 'bg-indigo-50 text-indigo-600' 
-          : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-      }`}
-  >
-      <div className="flex items-center gap-3">
-          {/* Menggunakan icon mdi-text-box-multiple-outline / Shield atau Folder */}
-          <Icons.ShieldAlert className="w-5 h-5" />
-          <span className="font-medium text-sm">Access Management</span>
-      </div>
-      <Icons.ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isAccessDropdownOpen ? 'rotate-180' : ''}`} />
-  </button>
-
-  {/* Sub Menu Container */}
-  <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isAccessDropdownOpen ? 'max-h-64 opacity-100 mt-1' : 'max-h-0 opacity-0'}`}>
-      <div className="space-y-1 relative">
-          <div className="absolute left-[34px] top-0 bottom-0 w-0.5 bg-gray-100"></div>
-
-          <SingleMenuItem 
-              title="Module Admin" 
-              isActive={location.pathname === '/menu'} 
-              onClick={() => handleNavigation('/menu')} 
-              className="pl-12 !mx-2 text-sm"
-          />
-          <SingleMenuItem 
-              title="Module Authority" 
-              isActive={location.pathname === '/hak_akses/otoritas_modul'} 
-              onClick={() => handleNavigation('/hak_akses/otoritas_modul')} 
-              className="pl-12 !mx-2 text-sm"
-          />
-          <SingleMenuItem 
-              title="User Management" 
-              isActive={location.pathname === '/hak_akses/user'} 
-              onClick={() => handleNavigation('/hak_akses/user')} 
-              className="pl-12 !mx-2 text-sm"
-          />
-          <SingleMenuItem 
-              title="Role Management" 
-              isActive={location.pathname === '/hak_akses/role'} 
-              onClick={() => handleNavigation('/hak_akses/role')} 
-              className="pl-12 !mx-2 text-sm"
-          />
-      </div>
-  </div>
-</div>
-
-{/* ================================================= */}
-{/* 2. DROPDOWN BACKUP AND LOG                       */}
-{/* ================================================= */}
-<div className="pt-2 pb-1">
-  <button 
-      onClick={() => setIsBackupDropdownOpen(!isBackupDropdownOpen)}
-      className={`w-full flex items-center justify-between px-4 py-3 mx-2 rounded-lg cursor-pointer transition-colors max-w-[calc(100%-16px)] ${
-          location.pathname.startsWith('/backup') 
-          ? 'bg-indigo-50 text-indigo-600' 
-          : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-      }`}
-  >
-      <div className="flex items-center gap-3">
-          <Icons.Database className="w-5 h-5" />
-          <span className="font-medium text-sm">Backup and Log</span>
-      </div>
-      <Icons.ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isBackupDropdownOpen ? 'rotate-180' : ''}`} />
-  </button>
-
-  {/* Sub Menu Container */}
-  <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isBackupDropdownOpen ? 'max-h-32 opacity-100 mt-1' : 'max-h-0 opacity-0'}`}>
-      <div className="space-y-1 relative">
-          <div className="absolute left-[34px] top-0 bottom-0 w-0.5 bg-gray-100"></div>
-
-          <SingleMenuItem 
-              title="Log Activity Admin" 
-              isActive={location.pathname === '/backup/log'} 
-              onClick={() => handleNavigation('/backup/log')} 
-              className="pl-12 !mx-2 text-sm"
-          />
-          <SingleMenuItem 
-              title="Backup & Housekeeping" 
-              isActive={location.pathname === '/backup/housekeeping'} 
-              onClick={() => handleNavigation('/backup/housekeeping')} 
-              className="pl-12 !mx-2 text-sm"
-          />
-      </div>
-  </div>
-</div>
-
-{/* ================================================= */}
-{/* 3. DROPDOWN DATA ADMINISTRATION                  */}
-{/* ================================================= */}
-<div className="pt-2 pb-1">
-  <button 
-      onClick={() => setIsAdminDropdownOpen(!isAdminDropdownOpen)}
-      className={`w-full flex items-center justify-between px-4 py-3 mx-2 rounded-lg cursor-pointer transition-colors max-w-[calc(100%-16px)] ${
-          location.pathname.startsWith('/administrasi') 
-          ? 'bg-indigo-50 text-indigo-600' 
-          : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-      }`}
-  >
-      <div className="flex items-center gap-3">
-          <Icons.FolderLock className="w-5 h-5" />
-          <span className="font-medium text-sm">Data Administration</span>
-      </div>
-      <Icons.ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isAdminDropdownOpen ? 'rotate-180' : ''}`} />
-  </button>
-
-  {/* Sub Menu Container */}
-  <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isAdminDropdownOpen ? 'max-h-32 opacity-100 mt-1' : 'max-h-0 opacity-0'}`}>
-      <div className="space-y-1 relative">
-          <div className="absolute left-[34px] top-0 bottom-0 w-0.5 bg-gray-100"></div>
-
-          <SingleMenuItem 
-              title="Proyek" 
-              isActive={location.pathname === '/administrasi/mproyek'} 
-              onClick={() => handleNavigation('/administrasi/mproyek')} 
-              className="pl-12 !mx-2 text-sm"
-          />
-          {/* <SingleMenuItem 
-              title="Kelompok" 
-              isActive={location.pathname === '/administrasi/mkelompok'} 
-              onClick={() => handleNavigation('/administrasi/mkelompok')} 
-              className="pl-12 !mx-2 text-sm"
-          /> */}
-      </div>
-  </div>
-</div>
-
+            // KONDISI B: JIKA MENU TUNGGAL
+            const isSingleActive = activeMenuId === menu.menu_id;
+            return (
+              <SingleMenuItem 
+                 key={menu.menu_id}
+                 title={menuTitle} 
+                 icon={menuIconStr} 
+                 isActive={isSingleActive}
+                 onClick={() => handleItemClick(menu.menu_id, null, menuUrl)}
+              />
+            );
+          })}
           
         </nav>
       </aside>

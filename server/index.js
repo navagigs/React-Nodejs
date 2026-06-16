@@ -51,31 +51,128 @@ db.connect((err) => {
         console.log("✅ Database Terhubung!");
     }
 });
-
+ 
 // --- API LOGIN ---
 app.post('/api/login', (req, res) => {
     const { email, password } = req.body;
     console.log(`Login Request dari: ${email}`); // Cek terminal saat klik login
 
+    // Validasi input awal
+    if (!email || !password) {
+        return res.status(400).json({ message: 'Email dan password wajib diisi' });
+    }
+
     const sql = 'SELECT * FROM users WHERE email = ?';
     db.query(sql, [email], async (err, results) => {
-        if (err) return res.status(500).json(err);
-        if (results.length === 0) return res.status(404).json({ message: 'User tidak ditemukan' });
+        if (err) {
+            console.error("Login Database Error:", err);
+            return res.status(500).json({ message: 'Terjadi kesalahan pada server', details: err.message });
+        }
+        
+        // 1. Cek apakah email terdaftar
+        if (results.length === 0) {
+            return res.status(401).json({ message: 'Email atau password salah' }); 
+        }
 
         const user = results[0];
 
-        // LOGIKA PASSWORD (PILIH SALAH SATU):
+        try {
+            // 2. Cek password input dengan hash di DB
+            const isMatch = await bcrypt.compare(password, user.password);
+
+            // 3. Jika password tidak cocok
+            if (!isMatch) {
+                return res.status(401).json({ message: 'Email atau password salah' });
+            }
+
+            // =========================================================================
+            // FIX: Tarik data Hak Akses (Permissions) dari tabel module_authority
+            // Kita hanya mengambil menu yang status 'is_view'-nya aktif ('1')
+            // =========================================================================
+            const sqlAuth = `
+                SELECT menu_id, is_view, is_create, is_edit, is_delete, is_export, is_duplicate, is_unlock 
+                FROM module_authority 
+                WHERE role_id = ? AND is_view = '1'
+            `;
+
+            db.query(sqlAuth, [user.role_id], (errAuth, permissions) => {
+                if (errAuth) {
+                    console.error("Fetch Permissions Error:", errAuth);
+                    return res.status(500).json({ message: 'Gagal mengambil data hak akses', details: errAuth.message });
+                }
+
+                // 4. Jika sukses ambil hak akses, buat token JWT
+                // Menyertakan role_id ke dalam token payload jika dibutuhkan untuk middleware backend
+                const token = jwt.sign(
+                    { id: user.id, email: user.email, role_id: user.role_id }, 
+                    JWT_SECRET, 
+                    { expiresIn: '1d' }
+                );
+
+                // 5. Kirim respons balik lengkap ke frontend termasuk role_id dan permissions
+                res.json({ 
+                    message: "Login berhasil!",
+                    token, 
+                    role_id: user.role_id, // Dikirim terpisah agar mudah dibaca frontend
+                    permissions,           // Berisi array list hak akses yang bernilai string '1'
+                    user: { 
+                        id: user.id,
+                        name: user.name, 
+                        email: user.email,
+                        role_id: user.role_id
+                    } 
+                });
+            });
+
+        } catch (bcryptErr) {
+            console.error("Bcrypt Compare Error:", bcryptErr);
+            return res.status(500).json({ message: 'Gagal memproses verifikasi keamanan' });
+        }
+    });
+});
+
+app.get('/api/menus/access/:role_id', (req, res) => {
+    const roleId = req.params.role_id;
+
+    if (!roleId) {
+        return res.status(400).json({ message: "Role ID tidak ditemukan" });
+    }
+
+    // Kueri SQL: Hanya mengambil menu yang memiliki izin 'is_view' = '1' untuk role_id ini
+    const sql = `
+        SELECT m.* FROM menu m
+        INNER JOIN module_authority ma ON m.menu_id = ma.menu_id
+        WHERE ma.role_id = ? AND ma.is_view = '1'
+        ORDER BY m.menu_order ASC
+    `;
+    
+    db.query(sql, [roleId], (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
         
-        // OPSI 1: Jika password di database belum di-hash (tulisan biasa 123456)
-        const isMatch = (password === user.password); 
+        const parents = [];
+        const children = [];
 
-        // OPSI 2: Jika password sudah di-hash pakai bcrypt (hapus // di bawah jika pakai ini)
-        // const isMatch = await bcrypt.compare(password, user.password);
+        // Kelompokkan data flat dari DB ke susunan berundak (Tree)
+        result.forEach(item => {
+            if (item.menu_id === 1 || item.parent_id === 1 || !item.parent_id) {
+                parents.push({ ...item, subs: [] });
+            } else {
+                children.push(item);
+            }
+        });
 
-        if (!isMatch) return res.status(401).json({ message: 'Password salah' });
+        children.forEach(child => {
+            const parent = parents.find(p => p.menu_id === child.parent_id);
+            if (parent) {
+                parent.subs.push(child);
+            } else {
+                parents.push({ ...child, subs: [] });
+            }
+        });
 
-        const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '1d' });
-        res.json({ token, user: { name: user.name, email: user.email } });
+        parents.sort((a, b) => a.menu_order - b.menu_order);
+
+        return res.json(parents);
     });
 });
 
@@ -915,6 +1012,45 @@ app.get('/api/menus', (req, res) => {
     });
 });
 
+
+// 1. READ ALL (GET DATA)
+app.get('/api/menus-access', (req, res) => {
+    // Ambil semua data menu diurutkan berdasarkan urutan menu
+    const sql = 'SELECT menu_id,  title AS menu_name, url AS menu_url, icon AS menu_icon, class_active, parent_id, menu_order FROM menu ORDER BY menu_order ASC';
+    
+    db.query(sql, (err, result) => {
+        if (err) return res.status(500).json(err);
+        
+        const parents = [];
+        const children = [];
+
+        result.forEach(item => {
+            // REVISI: Menggunakan properti 'subs' agar langsung dikenali oleh React frontend
+            if (item.menu_id === 1) {
+                parents.push({ ...item, subs: [] });
+            } else if (item.parent_id === 1 || !item.parent_id) {
+                parents.push({ ...item, subs: [] });
+            } else {
+                children.push(item);
+            }
+        });
+
+        // Masukkan setiap child ke parent_id yang cocok
+        children.forEach(child => {
+            const parent = parents.find(p => p.menu_id === child.parent_id);
+            if (parent) {
+                parent.subs.push(child); // REVISI: ke 'subs'
+            } else {
+                parents.push({ ...child, subs: [] }); // REVISI: ke 'subs'
+            }
+        });
+
+        // Urutkan kembali parent berdasarkan menu_order asli database
+        parents.sort((a, b) => a.menu_order - b.menu_order);
+
+        return res.json(parents);
+    });
+});
 // 2. CREATE (POST DATA)
 app.post('/api/menus', (req, res) => {
     const {
@@ -1093,6 +1229,389 @@ app.put('/api/project-documents/status/:id', (req, res) => {
         return res.json({ message: "Data terupdate!" });
     });
 });
+
+
+
+ // ==========================================
+// 1. GET ALL ROLES
+// ==========================================
+app.get('/api/roles', (req, res) => {
+    // Mengambil semua kolom data role
+    const sql = "SELECT role_id, name_role, description, `lock` FROM roles ORDER BY name_role ASC";
+    
+    db.query(sql, (err, result) => {
+        if (err) {
+            console.error("Error fetching roles:", err);
+            return res.status(500).json({ error: "Database error", details: err });
+        }
+        res.json(result);
+    });
+});
+
+// ==========================================
+// 2. POST NEW ROLE
+// ==========================================
+app.post('/api/roles', (req, res) => {
+    const { name_role, description, lock } = req.body;
+    
+    if (!name_role) {
+        return res.status(400).json({ error: "Field 'name_role' is required" });
+    }
+
+    const sql = "INSERT INTO roles (name_role, description, `lock`) VALUES (?, ?, ?)";
+    // Jika nilai lock tidak dikirim, otomatis diatur default ke 0 (unlocked)
+    const values = [name_role, description || null, lock !== undefined ? lock : 0];
+
+    db.query(sql, values, (err, result) => {
+        if (err) {
+            console.error("Error inserting role:", err);
+            return res.status(500).json({ error: "Database error", details: err });
+        }
+        res.json({ message: "Role added successfully", role_id: result.insertId });
+    });
+});
+
+// ==========================================
+// 3. PUT (UPDATE) ROLE & TOGGLE LOCK
+// ==========================================
+app.put('/api/roles/:id', (req, res) => {
+    const roleId = req.params.id;
+    const { name_role, description, lock } = req.body;
+
+    if (!name_role) {
+        return res.status(400).json({ error: "Field 'name_role' is required" });
+    }
+
+    // DISESUAIKAN: Validasi pengecekan lock lama dihapus agar frontend bisa 
+    // mengirimkan request untuk merubah status lock (dari 1 ke 0 atau sebaliknya)
+    const sql = "UPDATE roles SET name_role = ?, description = ?, `lock` = ? WHERE role_id = ?";
+    const values = [name_role, description || null, lock !== undefined ? lock : 0, roleId];
+
+    db.query(sql, values, (err, result) => {
+        if (err) {
+            console.error("Error updating role:", err);
+            return res.status(500).json({ error: "Database error", details: err });
+        }
+        
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: "Role not found" });
+        }
+        
+        res.json({ message: "Role updated successfully" });
+    });
+});
+
+// ==========================================
+// 4. DELETE ROLE (PROTEKSI KETAT)
+// ==========================================
+app.delete('/api/roles/:id', (req, res) => {
+    const roleId = req.params.id;
+
+    // Tetap pertahankan proteksi ganda di database: Cek status lock sebelum menghapus
+    db.query("SELECT `lock` FROM roles WHERE role_id = ?", [roleId], (checkErr, checkResult) => {
+        if (checkErr) return res.status(500).json(checkErr);
+        if (checkResult.length === 0) return res.status(404).json({ error: "Role not found" });
+
+        // Jika di database statusnya masih terkunci (1), blokir aksi hapus!
+        if (checkResult[0].lock === 1 || checkResult[0].lock === true) {
+            return res.status(403).json({ error: "This role is system locked and cannot be deleted" });
+        }
+
+        // Jika aman (lock === 0), jalankan proses hapus
+        const sql = "DELETE FROM roles WHERE role_id = ?";
+        db.query(sql, [roleId], (err, result) => {
+            if (err) {
+                console.error("Error deleting role:", err);
+                return res.status(500).json({ error: "Database error", details: err });
+            }
+            res.json({ message: "Role deleted successfully" });
+        });
+    });
+});
+ 
+
+// ==========================================
+// 1. GET ALL USERS (Dengan nama Role)
+// ==========================================
+app.get('/api/users/roles', (req, res) => {
+    // Menggunakan JOIN untuk mengambil data user beserta nama rolenya dari tabel roles
+    const sql = `
+        SELECT u.id, u.email, u.name, u.role_id, r.name_role 
+        FROM users u 
+        LEFT JOIN roles r ON u.role_id = r.role_id 
+        ORDER BY u.id DESC
+    `;
+    
+    db.query(sql, (err, result) => {
+        if (err) {
+            console.error("Error fetching users:", err);
+            return res.status(500).json({ error: "Database error", details: err });
+        }
+        res.json(result);
+    });
+});
+
+// ==========================================
+// 2. POST NEW USER (Tambah User)
+// ==========================================
+
+app.post('/api/users', async (req, res) => {
+    const { email, password, name, role_id } = req.body;
+
+    // Log debug untuk memastikan data dari frontend benar-benar masuk ke backend
+    console.log("Data diterima backend:", { email, name, role_id });
+
+    // Validasi input wajib
+    if (!email || !password || !name || !role_id) {
+        return res.status(400).json({ error: "All fields are required" });
+    }
+
+    try {
+        // PERBAIKAN 1: Amankan enkripsi & pastikan saltRounds didefinisikan (misal: const saltRounds = 10)
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        // PERBAIKAN 2: Pastikan role_id dikonversi ke Integer jika DB menggunakan tipe INT
+        const cleanRoleId = parseInt(role_id, 10);
+
+        if (isNaN(cleanRoleId)) {
+            return res.status(400).json({ error: "Invalid Role ID format (Must be a number)" });
+        }
+
+        const sql = "INSERT INTO users (email, password, name, role_id) VALUES (?, ?, ?, ?)";
+        const values = [email, hashedPassword, name, cleanRoleId];
+
+        db.query(sql, values, (err, result) => {
+            if (err) {
+                // Log detail error di terminal server Anda untuk debugging
+                console.error("Database Error Detail:", err);
+
+                if (err.code === 'ER_DUP_ENTRY') {
+                    return res.status(400).json({ error: "Email already registered" });
+                }
+                // Jika foreign key bermasalah (role_id tidak ada di tabel roles)
+                if (err.code === 'ER_NO_REFERENCED_ROW_2' || err.code === 'ER_NO_REFERENCED_ROW') {
+                    return res.status(400).json({ error: "The selected Role ID does not exist in roles table" });
+                }
+
+                return res.status(500).json({ error: "Database error", details: err.message });
+            }
+            
+            res.json({ message: "User created successfully", id: result.insertId });
+        });
+    } catch (error) {
+        console.error("Hashing Error Detail:", error);
+        res.status(500).json({ error: "Internal server error during processing" });
+    }
+});
+// ==========================================
+// 3. PUT (UPDATE) USER
+// ==========================================
+ app.put('/api/users/:id', async (req, res) => {
+    const userId = req.params.id;
+    const { email, password, name, role_id } = req.body;
+
+    // Log debug untuk memantau data yang masuk saat proses edit
+    console.log(`Mengubah user ID ${userId} dengan data:`, { email, name, role_id });
+
+    // Validasi input wajib (tidak termasuk password karena password bersifat opsional saat edit)
+    if (!email || !name || !role_id) {
+        return res.status(400).json({ error: "Email, Name, and Role are required" });
+    }
+
+    try {
+        // PERBAIKAN 1: Pastikan role_id dikonversi ke Integer agar klop dengan tipe data INT MySQL
+        const cleanRoleId = parseInt(role_id, 10);
+        if (isNaN(cleanRoleId)) {
+            return res.status(400).json({ error: "Invalid Role ID format (Must be a number)" });
+        }
+
+        let sql;
+        let values;
+
+        // Jika password diisi (tidak kosong dan bukan spasi doang), enkripsi password baru
+        if (password && password.trim() !== "") {
+            // PERBAIKAN 2: Gunakan saltRounds 10 secara langsung untuk menghindari 'saltRounds is not defined'
+            const hashedPassword = await bcrypt.hash(password, 10);
+            
+            sql = "UPDATE users SET email = ?, password = ?, name = ?, role_id = ? WHERE id = ?";
+            values = [email, hashedPassword, name, cleanRoleId, userId];
+        } else {
+            // Jika password kosong, update field lainnya tanpa mengubah password lama di database
+            sql = "UPDATE users SET email = ?, name = ?, role_id = ? WHERE id = ?";
+            values = [email, name, cleanRoleId, userId];
+        }
+
+        db.query(sql, values, (err, result) => {
+            if (err) {
+                // Log detail error ke terminal server agar mudah dilacak
+                console.error("Database Update Error Detail:", err);
+
+                if (err.code === 'ER_DUP_ENTRY') {
+                    return res.status(400).json({ error: "Email already used by another account" });
+                }
+                
+                // Proteksi jika role_id yang dilempar tidak terdaftar di tabel roles (Foreign Key Constraint)
+                if (err.code === 'ER_NO_REFERENCED_ROW_2' || err.code === 'ER_NO_REFERENCED_ROW') {
+                    return res.status(400).json({ error: "The selected Role ID does not exist in roles table" });
+                }
+
+                return res.status(500).json({ error: "Database error", details: err.message });
+            }
+
+            // Jika query sukses tapi tidak ada baris yang berubah (ID salah)
+            if (result.affectedRows === 0) {
+                return res.status(404).json({ error: "User not found" });
+            }
+
+            res.json({ message: "User updated successfully" });
+        });
+    } catch (error) {
+        console.error("Internal Server Error Detail:", error);
+        res.status(500).json({ error: "Internal server error during processing" });
+    }
+});
+
+// ==========================================
+// 4. DELETE USER
+// ==========================================
+app.delete('/api/users/:id', (req, res) => {
+    const userId = req.params.id;
+    const sql = "DELETE FROM users WHERE id = ?";
+
+    db.query(sql, [userId], (err, result) => {
+        if (err) {
+            console.error("Error deleting user:", err);
+            return res.status(500).json({ error: "Database error", details: err });
+        }
+        res.json({ message: "User deleted successfully" });
+    });
+});
+ 
+  // =========================================================================
+// 1. GET DATA MATRIKS (MURNI STRING '1' DAN '0')
+// =========================================================================
+
+// =========================================================================
+// 1. GET DATA MATRIKS (STRUKTUR SINKRON DENGAN LOGIKA /api/menus)
+// =========================================================================
+app.get('/api/module-authority/:role_id', (req, res) => {
+    const roleId = req.params.role_id;
+
+    // Ambil data menu urut berdasarkan menu_order (Sama seperti /api/menus)
+    const sqlMenu = "SELECT menu_id, title, parent_id, menu_order FROM menu ORDER BY menu_order ASC";
+    
+    db.query(sqlMenu, (errMenu, menus) => {
+        if (errMenu) return res.status(500).json({ error: errMenu.message });
+
+        // Ambil data authority
+        const sqlAuth = "SELECT * FROM module_authority WHERE role_id = ?";
+        db.query(sqlAuth, [roleId], (errAuth, authorities) => {
+            if (errAuth) return res.status(500).json({ error: errAuth.message });
+
+            // Ikat hak akses berdasarkan menu_id ke dalam Map (Key-Value)
+            const authMap = {};
+            authorities.forEach(auth => {
+                authMap[String(auth.menu_id)] = {
+                    is_view: String(auth.is_view) === '1' ? '1' : '0',
+                    is_create: String(auth.is_create) === '1' ? '1' : '0',
+                    is_edit: String(auth.is_edit) === '1' ? '1' : '0',
+                    is_delete: String(auth.is_delete) === '1' ? '1' : '0',
+                    is_export: String(auth.is_export) === '1' ? '1' : '0',
+                    is_duplicate: String(auth.is_duplicate) === '1' ? '1' : '0',
+                    is_unlock: String(auth.is_unlock) === '1' ? '1' : '0'
+                };
+            });
+
+            // Satukan struktur menu dengan hak aksesnya (Flat Data)
+            const matrixData = menus.map(menu => {
+                const idString = String(menu.menu_id);
+                return {
+                    menu_id: menu.menu_id,
+                    title: menu.title,
+                    parent_id: menu.parent_id,
+                    menu_order: menu.menu_order,
+                    access: authMap[idString] || {
+                        is_view: '0', is_create: '0', is_edit: '0', is_delete: '0', is_export: '0', is_duplicate: '0', is_unlock: '0'
+                    }
+                };
+            });
+
+            // =========================================================================
+            // ADAPTASI LOGIKA UTAMA: Memisahkan Parent & Child Persis Seperti /api/menus
+            // =========================================================================
+            const parents = [];
+            const children = [];
+
+            matrixData.forEach(item => {
+                if (item.menu_id === 1) {
+                    parents.push({ ...item, subs: [] });
+                } else if (item.parent_id === 1 || !item.parent_id) {
+                    parents.push({ ...item, subs: [] });
+                } else {
+                    children.push(item);
+                }
+            });
+
+            // Masukkan setiap child ke parent_id yang cocok
+            children.forEach(child => {
+                const parent = parents.find(p => p.menu_id === child.parent_id);
+                if (parent) {
+                    parent.subs.push(child);
+                } else {
+                    parents.push({ ...child, subs: [] });
+                }
+            });
+
+            // Urutkan kembali parent berdasarkan menu_order asli database
+            parents.sort((a, b) => a.menu_order - b.menu_order);
+
+            // Kirim hasilnya ke React Frontend
+            return res.json(parents);
+        });
+    });
+});
+
+// =========================================================================
+// 2. POST SAVE (MURNI STRING '1' DAN '0')
+// =========================================================================
+app.post('/api/module-authority/save', (req, res) => {
+    const { role_id, permissions } = req.body;
+
+    if (!role_id) return res.status(400).json({ error: "Role ID wajib dipilih!" });
+
+    const deleteSql = "DELETE FROM module_authority WHERE role_id = ?";
+    db.query(deleteSql, [role_id], (delErr) => {
+        if (delErr) return res.status(500).json({ error: delErr.message });
+
+        if (!permissions || permissions.length === 0) {
+            return res.json({ message: "Data dibersihkan" });
+        }
+
+        const insertSql = `
+            INSERT INTO module_authority 
+            (role_id, menu_id, is_view, is_create, is_edit, is_delete, is_export, is_duplicate, is_unlock) 
+            VALUES ?
+        `;
+
+        const values = permissions.map(p => [
+            role_id,
+            p.menu_id,
+            String(p.is_view) === '1' ? '1' : '0',
+            String(p.is_create) === '1' ? '1' : '0',
+            String(p.is_edit) === '1' ? '1' : '0',
+            String(p.is_delete) === '1' ? '1' : '0',
+            String(p.is_export) === '1' ? '1' : '0',
+            String(p.is_duplicate) === '1' ? '1' : '0',
+            String(p.is_unlock) === '1' ? '1' : '0'
+        ]);
+
+        db.query(insertSql, [values], (insErr, result) => {
+            if (insErr) return res.status(500).json({ error: insErr.message });
+            res.json({ message: "Hak akses berhasil disimpan!" });
+        });
+    });
+});
+
 
 app.listen(PORT, () => {
     console.log(`🚀 Server berjalan di http://localhost:${PORT}`);

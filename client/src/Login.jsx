@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 // Import Ikon dari React Icons
 import { FaEye, FaEyeSlash, FaGoogle, FaFacebookF, FaTwitter } from 'react-icons/fa';
+import { LOGIN_URL } from './Api';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -11,11 +12,23 @@ const Login = () => {
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
-  const handleLogin = async (e) => {
+ const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post('http://localhost:5001/api/login', { email, password });
-      localStorage.setItem('token', res.data.token);
+      // 1. Kirim request login ke backend
+      const res = await axios.post(LOGIN_URL, { email, password });
+      
+      // 2. Ambil data dari response backend
+      const { token, role_id, permissions } = res.data;
+
+      // 3. Simpan ke LocalStorage agar bisa diakses oleh Sidebar / Navbar / Routing Guard
+      localStorage.setItem('token', token);
+      localStorage.setItem('role_id', role_id);
+      
+      // Karena permissions berbentuk array/object, wajib diubah ke string JSON dlu
+      localStorage.setItem('permissions', JSON.stringify(permissions || []));
+
+      // 4. Arahkan ke dashboard
       navigate('/dashboard');
     } catch (err) {
       if (err.response && err.response.data && err.response.data.message) {

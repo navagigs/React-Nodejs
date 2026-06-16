@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MENU_URL } from '../Api';
+import * as Icons from 'lucide-react';
 
 const MenuManagement = () => {
   const [menus, setMenus] = useState([]);
@@ -377,9 +378,16 @@ const fetchMenus = async () => {
                         <td className="py-3.5 px-4 font-bold text-gray-900">{parent.title}</td>
                         <td className="py-3.5 px-4 text-xs font-mono text-gray-500">{parent.url || '-'}</td>
                         <td className="py-3.5 px-4 text-xs text-gray-600">{parent.description || '-'}</td>
-                        <td className="py-3.5 px-4 text-center text-sm text-gray-500">
-                          {parent.icon ? <i className={`${parent.icon}`}></i> : '-'}
-                        </td>
+                        <td className="py-3.5 px-4 text-center text-sm text-gray-500"> 
+                        {(() => {
+                            // Ambil komponen dari objek Icons berdasarkan string database, default ke Folder jika tidak ada
+                            const TargetIcon = (parent.icon && Icons[parent.icon]) ? Icons[parent.icon] : Icons.Folder;
+                            
+                            return (
+                              <TargetIcon className="w-5 h-5 mx-auto text-gray-300 opacity-60 hover:text-indigo-500 transition-colors" />
+                            );
+                          })()}
+                           </td>
                         <td className="py-3.5 px-4 text-center text-xs">
                           <span className={`px-2 py-1 rounded-md font-semibold ${parent.is_active === 1 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
                             {parent.is_active === 1 ? 'Aktif' : 'Tidak Aktif'}
