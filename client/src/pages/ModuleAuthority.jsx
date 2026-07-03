@@ -19,6 +19,29 @@ const ModuleAuthority = () => {
     { key: 'is_unlock', label: 'Unlock' },
   ];
 
+  // Helper untuk mengecek apakah sebuah kolom aktif (bernilai '1') di master tabel menu
+  // Helper Baru: Pendeteksi otomatis tipe data & penamaan dari backend
+  const isColumnEnabledInMenu = (item, colKey) => {
+    // 1. Cek jika data dibungkus dalam objek 'menu_config' oleh backend
+    if (item.menu_config && item.menu_config[colKey] !== undefined) {
+      return String(item.menu_config[colKey]).trim() === '1';
+    }
+    
+    // 2. Cek jika database menggunakan alias prefix 'menu_is_view', 'menu_is_create', dll.
+    if (item[`menu_${colKey}`] !== undefined) {
+      return String(item[`menu_${colKey}`]).trim() === '1';
+    }
+    
+    // 3. Cek jika data berada langsung di root level item ('item.is_view', 'item.is_create')
+    if (item[colKey] !== undefined) {
+      return String(item[colKey]).trim() === '1';
+    }
+
+    // Fallback: Jika field tidak ditemukan sama sekali di object menu, 
+    // munculkan checkbox agar halaman tidak kosong (true)
+    return true; 
+  };
+
   const showNotification = (message, type = 'success') => {
     setNotification({ show: true, message, type });
     setTimeout(() => setNotification((prev) => ({ ...prev, show: false })), 3000);
@@ -28,50 +51,70 @@ const ModuleAuthority = () => {
     fetch(ROLE_URL)
       .then(res => res.json())
       .then(data => {
-        const roleData = Array.isArray(data) ? data : [];
-        setRoles(roleData);
+        setRoles(Array.isArray(data) ? data : []);
       })
       .catch(() => showNotification("Gagal memuat list role", "error"));
   }, []);
 
-  useEffect(() => {
-    if (!selectedRoleId) {
-      setMatrix([]);
-      return;
-    }
-    setLoading(true);
+useEffect(() => {
+    if (!selectedRoleId) return;
     fetch(`${AUTH_MATRIX_URL}/${selectedRoleId}`)
       .then(res => res.json())
       .then(data => {
+        // LIHAT STRUKTUR DATA ASLI DARI BACKEND ANDA DI SINI
+        console.log("CONTOH DATA DARI BACKEND:", data[0]); 
         setMatrix(Array.isArray(data) ? data : []);
-        setLoading(false);
-      })
-      .catch(() => {
-        showNotification("Gagal memuat matriks hak akses", "error");
-        setLoading(false);
       });
   }, [selectedRoleId]);
-
-  // FIX: Mengubah status per-kolom + Auto Ceklis Induk jika Anak Aktif
+  // Perubahan per-checkbox individu
+   // Perubahan per-checkbox individu (Induk mengubah anak, Anak mengevaluasi induk)
   const handleCheckboxChange = (menuId, accessType) => {
+    // Fungsi pembantu untuk mengubah status seluruh sub-menu di bawah target secara massal
+    const cascadeToChildren = (subs, targetVal) => {
+      if (!Array.isArray(subs)) return [];
+      return subs.map(sub => {
+        let subAccess = { ...(sub.access || {}) };
+        // Hanya ubah jika kolom tersebut diizinkan aktif di tabel menu
+        if (isColumnEnabledInMenu(sub, accessType)) {
+          subAccess[accessType] = targetVal;
+        }
+        return {
+          ...sub,
+          access: subAccess,
+          subs: cascadeToChildren(sub.subs, targetVal)
+        };
+      });
+    };
+
     const updateTree = (items) => {
       if (!Array.isArray(items)) return [];
       return items.map(item => {
         let currentAccess = { ...(item.access || {}) };
         let currentSubs = item.subs ? [...item.subs] : [];
 
+        // KONDISI 1: Jika baris ini adalah menu INDUK/TARGET yang diklik
         if (String(item.menu_id) === String(menuId)) {
-          // Jika ini node target yang diklik
-          const nextVal = String(currentAccess[accessType]) === '1' ? '0' : '1';
-          currentAccess[accessType] = nextVal;
-        } else if (currentSubs.length > 0) {
-          // Jika bukan, telusuri anak-anaknya terlebih dahulu
+          if (isColumnEnabledInMenu(item, accessType)) {
+            const nextVal = String(currentAccess[accessType]) === '1' ? '0' : '1';
+            currentAccess[accessType] = nextVal;
+            
+            // OPER KE BAWAH: Semua anak di bawahnya otomatis mengikuti nilai induk yang baru
+            if (currentSubs.length > 0) {
+              currentSubs = cascadeToChildren(currentSubs, nextVal);
+            }
+          }
+        } 
+        // KONDISI 2: Jika bukan target, telusuri ke dalam anak-anaknya (Rekursif)
+        else if (currentSubs.length > 0) {
           currentSubs = updateTree(currentSubs);
           
-          // EVALUASI PASCA-ANAK: Jika ada minimal 1 anak yang bernilai '1', induk dipaksa ikutan '1'
+          // EVALUASI KE ATAS: Induk otomatis ikut aktif jika minimal ada 1 anak yang aktif
           const isAnyChildActive = currentSubs.some(sub => String(sub.access?.[accessType]) === '1');
-          if (isAnyChildActive) {
+          if (isAnyChildActive && isColumnEnabledInMenu(item, accessType)) {
             currentAccess[accessType] = '1';
+          } else if (!isAnyChildActive && isColumnEnabledInMenu(item, accessType)) {
+            // Jika semua anak sudah mati (uncheck), matikan juga induknya
+            currentAccess[accessType] = '0';
           }
         }
 
@@ -81,9 +124,31 @@ const ModuleAuthority = () => {
     setMatrix(prev => updateTree(prev));
   };
 
-  // FIX: Mengubah status master baris + Auto Ceklis Induk jika Anak Aktif
+  // Perubahan Master Baris (Mencentang semua kolom yang AKTIF pada satu baris menu)
+   // Perubahan Master Baris (Induk mengubah kolom & sub-menu di bawahnya)
   const handleRowMasterChange = (menuId, checked) => {
     const targetVal = checked ? '1' : '0';
+
+    // Fungsi pembantu untuk menurunkan status master baris ke tingkat anak
+    const cascadeRowToChildren = (subs, val) => {
+      if (!Array.isArray(subs)) return [];
+      return subs.map(sub => {
+        let subAccess = { ...(sub.access || {}) };
+        accessColumns.forEach(col => {
+          if (isColumnEnabledInMenu(sub, col.key)) {
+            subAccess[col.key] = val;
+          } else {
+            subAccess[col.key] = '0';
+          }
+        });
+        return {
+          ...sub,
+          access: subAccess,
+          subs: cascadeRowToChildren(sub.subs, val)
+        };
+      });
+    };
+
     const updateTree = (items) => {
       if (!Array.isArray(items)) return [];
       return items.map(item => {
@@ -91,18 +156,29 @@ const ModuleAuthority = () => {
         let currentSubs = item.subs ? [...item.subs] : [];
 
         if (String(item.menu_id) === String(menuId)) {
-          // Centang seluruh kolom pada baris target
+          // Ubah semua kolom aktif di baris induk
           accessColumns.forEach(col => {
-            currentAccess[col.key] = targetVal;
+            if (isColumnEnabledInMenu(item, col.key)) {
+              currentAccess[col.key] = targetVal;
+            } else {
+              currentAccess[col.key] = '0';
+            }
           });
+
+          // OPER KE BAWAH: Semua anak ikut terpengaruh check/uncheck baris induk
+          if (currentSubs.length > 0) {
+            currentSubs = cascadeRowToChildren(currentSubs, targetVal);
+          }
         } else if (currentSubs.length > 0) {
           currentSubs = updateTree(currentSubs);
           
-          // EVALUASI PASCA-ANAK: Periksa semua tipe akses kolom demi kolom
+          // Evaluasi balik status baris induk berdasarkan kondisi anak
           accessColumns.forEach(col => {
             const isAnyChildActive = currentSubs.some(sub => String(sub.access?.[col.key]) === '1');
-            if (isAnyChildActive) {
+            if (isAnyChildActive && isColumnEnabledInMenu(item, col.key)) {
               currentAccess[col.key] = '1';
+            } else if (!isAnyChildActive && isColumnEnabledInMenu(item, col.key)) {
+              currentAccess[col.key] = '0';
             }
           });
         }
@@ -113,14 +189,20 @@ const ModuleAuthority = () => {
     setMatrix(prev => updateTree(prev));
   };
 
+  // Perubahan Master Global (Pojok Kiri Atas tabel)
   const handleGlobalAllChange = (checked) => {
     const targetVal = checked ? '1' : '0';
     const updateAllNodes = (items) => {
       if (!Array.isArray(items)) return [];
       return items.map(item => {
         const newAccess = { ...(item.access || {}) };
+        
         accessColumns.forEach(col => {
-          newAccess[col.key] = targetVal;
+          if (isColumnEnabledInMenu(item, col.key)) {
+            newAccess[col.key] = targetVal;
+          } else {
+            newAccess[col.key] = '0';
+          }
         });
         
         if (item.subs && item.subs.length > 0) {
@@ -139,8 +221,11 @@ const ModuleAuthority = () => {
     const traverse = (nodes) => {
       for (const node of nodes) {
         const nodeAccess = node.access || {};
-        const isRowAllChecked = accessColumns.every(col => String(nodeAccess[col.key]) === '1');
-        if (!isRowAllChecked) {
+        // Cari kolom yang aktif saja pada menu ini
+        const enabledCols = accessColumns.filter(col => isColumnEnabledInMenu(node, col.key));
+        
+        const isRowAllChecked = enabledCols.length > 0 && enabledCols.every(col => String(nodeAccess[col.key]) === '1');
+        if (enabledCols.length > 0 && !isRowAllChecked) {
           allChecked = false;
           return;
         }
@@ -185,11 +270,7 @@ const ModuleAuthority = () => {
       if (!response.ok) throw new Error("Gagal menyimpan data");
       
       showNotification("Hak akses berhasil diperbarui!", "success");
-
-      setTimeout(() => {
-        window.location.reload();
-      }, 1200);
-
+      setTimeout(() => window.location.reload(), 1200);
     } catch (error) {
       showNotification(error.message, "error");
     }
@@ -200,7 +281,10 @@ const ModuleAuthority = () => {
     
     const isChild = depth > 0;
     const itemAccess = item.access || {};
-    const isRowAllChecked = accessColumns.every(col => String(itemAccess[col.key]) === '1');
+
+    // Ambil kolom yang aktif khusus untuk master checkbox baris saat ini
+    const enabledColumns = accessColumns.filter(col => isColumnEnabledInMenu(item, col.key));
+    const isRowAllChecked = enabledColumns.length > 0 && enabledColumns.every(col => String(itemAccess[col.key]).trim() === '1');
 
     return (
       <>
@@ -210,28 +294,47 @@ const ModuleAuthority = () => {
               {isChild && (
                 <span className="text-gray-400 font-mono select-none mr-1">└─</span>
               )}
-              <input 
-                type="checkbox"
-                className="w-4 h-4 rounded text-indigo-600 border-gray-300 focus:ring-indigo-500 cursor-pointer"
-                checked={isRowAllChecked}
-                onChange={(e) => handleRowMasterChange(item.menu_id, e.target.checked)}
-              />
+              
+              {/* Checkbox Master Baris Utama */}
+              {enabledColumns.length > 0 ? (
+                <input 
+                  type="checkbox"
+                  className="w-4 h-4 rounded text-indigo-600 border-gray-300 focus:ring-indigo-500 cursor-pointer"
+                  checked={isRowAllChecked}
+                  onChange={(e) => handleRowMasterChange(item.menu_id, e.target.checked)}
+                />
+              ) : (
+                <div className="w-4 h-4"></div>
+              )}
+
               <span className={`${isChild ? 'text-gray-600 font-normal' : 'font-bold text-gray-900 tracking-wide'}`}>
                 {item.title}
               </span>
             </div>
           </td>
 
-          {accessColumns.map(col => (
-            <td key={col.key} className="py-3 px-2 text-center">
-              <input 
-                type="checkbox" 
-                className="w-4 h-4 rounded text-indigo-600 border-gray-300 focus:ring-indigo-500 cursor-pointer"
-                checked={String(itemAccess[col.key]) === '1'} 
-                onChange={() => handleCheckboxChange(item.menu_id, col.key)}
-              />
-            </td>
-          ))}
+          {/* Render Kolom Akses Berdasarkan Nilai 1 dari Master Menu */}
+          {accessColumns.map(col => {
+            const hasColumnAccess = isColumnEnabledInMenu(item, col.key);
+
+            if (hasColumnAccess) {
+              return (
+                <td key={col.key} className="py-3 px-2 text-center">
+                  <input 
+                    type="checkbox" 
+                    className="w-4 h-4 rounded text-indigo-600 border-gray-300 focus:ring-indigo-500 cursor-pointer"
+                    checked={String(itemAccess[col.key]).trim() === '1'} 
+                    onChange={() => handleCheckboxChange(item.menu_id, col.key)}
+                  />
+                </td>
+              );
+            }
+
+            // Jika bernilai '0', kembalikan kolom kosong biar putih bersih sesuai gambar screenshot
+            return (
+              <td key={col.key} className="py-3 px-2 text-center bg-transparent"></td>
+            );
+          })}
         </tr>
 
         {item.subs && Array.isArray(item.subs) && item.subs.map(sub => (
@@ -243,27 +346,54 @@ const ModuleAuthority = () => {
 
   const isGlobalAllChecked = checkIsGlobalAllChecked(matrix);
 
-  return (
-    <div className="max-w-7xl mx-auto p-4 relative">
+  const currentMenuData = matrix.find(item => 
+    item.title?.toLowerCase().includes("authority") || 
+    item.title?.toLowerCase().includes("hak akses")
+  );
+
+  const headerTitle = currentMenuData ? currentMenuData.title : "Module Authority";
+  const headerDescription = currentMenuData?.description 
+    ? currentMenuData.description 
+    : "Kelola data peran pengguna aplikasi beserta matriks hak akses menunya.";
+
+  return (    
+    <>
       {notification.show && (
         <div className="fixed top-6 right-20 z-[60] px-6 py-4 rounded-xl shadow-xl border-l-4 bg-white border-green-500 text-gray-800">
           <span className="text-sm font-semibold">{notification.message}</span>
         </div>
       )}
+      
 
-      {/* SEARCH / FILTER ROLE */}
-      <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm mb-6 flex items-center gap-6">
-        <label className="text-sm font-semibold text-gray-600 uppercase tracking-wider">Pencarian</label>
-        <select 
-          className="w-full max-w-xs border border-gray-200 bg-gray-50 rounded-lg px-4 py-2.5 text-sm outline-none focus:bg-white focus:border-indigo-500 transition"
-          value={selectedRoleId}
-          onChange={(e) => setSelectedRoleId(e.target.value)}
-        >
-          <option value="">-- Pilih Role --</option>
-          {roles.map(role => (
-            <option key={role.role_id} value={role.role_id}>{role.name_role || role.role_name}</option>
-          ))}
-        </select>
+      {/* FILTER ROLE */} 
+    <div className="max-w-7xl mx-auto"> 
+      <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm mb-6">
+        {/* 1. HEADER DI DALAM BOKS PUTIH */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 border-b border-gray-100 pb-5">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 tracking-tight">{headerTitle}</h2>
+            {/* <p className="text-sm text-gray-500 mt-1">{headerDescription}</p> */}
+          </div>
+        </div>
+         
+        {/* 2. AREA FILTER PENCARIAN ROLE */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 pt-1">
+          <label className="text-sm font-semibold text-gray-600 uppercase tracking-wider min-w-[80px]">
+            Role Akses
+          </label>
+          <select 
+            className="w-full max-w-xs border border-gray-200 bg-gray-50 rounded-lg px-4 py-2.5 text-sm outline-none focus:bg-white focus:border-indigo-500 transition cursor-pointer shadow-sm"
+            value={selectedRoleId}
+            onChange={(e) => setSelectedRoleId(e.target.value)}
+          >
+            <option value="">-- Pilih Role --</option>
+            {roles.map(role => (
+              <option key={role.role_id} value={role.role_id}>
+                {role.name_role || role.role_name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* MATRIX TABLE */}
@@ -320,7 +450,8 @@ const ModuleAuthority = () => {
           <Save className="w-5 h-5" />
         </button>
       )}
-    </div>
+    </div>  
+    </>
   );
 };
 

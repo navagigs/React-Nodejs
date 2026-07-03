@@ -199,6 +199,24 @@ const ProjectDocument = ({ projectId }) => {
         });
         setViewMode('table');
     };
+    useEffect(() => {
+        if (syncBastPihak1) {
+            setFormData(prev => ({
+                ...prev,
+                handover_officer_name_1: prev.progress_officer_name_1 || '',
+                handover_officer_role_1: prev.progress_officer_role_1 || '',
+            }));
+        }
+    }, [syncBastPihak1, formData.progress_officer_name_1, formData.progress_officer_role_1]);
+    useEffect(() => {
+        if (syncBastPihak2) {
+            setFormData(prev => ({
+                ...prev,
+                handover_officer_name_2: prev.progress_officer_name_2 || '',
+                handover_officer_role_2: prev.progress_officer_role_2 || '',
+            }));
+        }
+    }, [syncBastPihak2, formData.progress_officer_name_2, formData.progress_officer_role_2]);
 
     // SESUAIKAN ADD NEW: Reset nilai kolom baru
   const handleAddNew = () => {
@@ -373,16 +391,80 @@ const ProjectDocument = ({ projectId }) => {
         return found ? found.title || found.name : `ID Proyek: ${id}`;
     };
 
-    const getHariDanTerbilang = (dateString) => {
-        if (!dateString) return { hari: "___________", tanggalTerbilang: "tanggal ____ bulan __________ tahun _____" };
-        const dateObj = new Date(dateString);
-        const hariArr = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
-        const bulanArr = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+ const getHariDanTerbilang = (dateString) => {
+    if (!dateString) {
         return {
-            hari: hariArr[dateObj.getDay()],
-            tanggalTerbilang: `${hariArr[dateObj.getDay()]} tanggal ${dateObj.getDate()} bulan ${bulanArr[dateObj.getMonth()]} tahun ${dateObj.getFullYear()}`
+            hari: "___________",
+            tanggalTerbilang: "tanggal ____ bulan __________ tahun _____"
         };
+    }
+
+    const dateObj = new Date(dateString);
+
+    const hariArr = [
+        "Minggu", "Senin", "Selasa", "Rabu",
+        "Kamis", "Jumat", "Sabtu"
+    ];
+
+    const bulanArr = [
+        "Januari", "Februari", "Maret", "April",
+        "Mei", "Juni", "Juli", "Agustus",
+        "September", "Oktober", "November", "Desember"
+    ];
+
+    // 🔥 helper angka ke kata
+    const angkaKata = (num) => {
+        const map = [
+            "", "Satu", "Dua", "Tiga", "Empat", "Lima",
+            "Enam", "Tujuh", "Delapan", "Sembilan"
+        ];
+
+        if (num < 10) return map[num];
+
+        if (num < 20) {
+            if (num === 10) return "Sepuluh";
+            if (num === 11) return "Sebelas";
+            return map[num - 10] + " Belas";
+        }
+
+        const puluhan = Math.floor(num / 10);
+        const satuan = num % 10;
+
+        let hasil = map[puluhan] + " Puluh";
+        if (satuan !== 0) hasil += " " + map[satuan];
+
+        return hasil;
     };
+
+    const tanggal = dateObj.getDate();
+    const bulan = bulanArr[dateObj.getMonth()];
+    const tahun = dateObj.getFullYear();
+
+    // 🔥 format terbilang tahun (2 digit + 4 digit)
+    const tahunKata = (() => {
+        const ribuan = Math.floor(tahun / 1000);
+        const sisa = tahun % 1000;
+
+        let hasil = angkaKata(ribuan) + " Ribu";
+
+        if (sisa > 0) {
+            if (sisa < 100) {
+                hasil += " " + angkaKata(sisa);
+            } else {
+                const ratus = Math.floor(sisa / 100);
+                hasil += " " + angkaKata(ratus) + " Ratus";
+            }
+        }
+
+        return hasil;
+    })();
+
+    return {
+    hari: hariArr[dateObj.getDay()],
+    tanggalTerbilang: `tanggal ${angkaKata(tanggal)} bulan ${bulan} tahun ${tahunKata}`,
+    tanggalAngka: `${String(tanggal).padStart(2, "0")}-${String(dateObj.getMonth() + 1).padStart(2, "0")}-${tahun}`
+};
+};
 
     const labelStyle = "block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1.5";
     const inputStyle = "w-full border border-gray-300 bg-white rounded-xl px-4 py-2 text-sm focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all";
@@ -416,8 +498,7 @@ const generateBastTemplate = (project) => {
     return `
         <p>Berdasarkan:</p>
         <ol>
-            <li>Kontrak Perjanjian Kerja Sama  ${projectTitle}  Nomor: ${contractNumber} tanggal  ${contractDate}</li>
-            <li>Amandemen Kesatu Kontrak Perjanjian Kerja Sama ${projectTitle}  Nomor: ${contractNumber}  tanggal ${contractDate} </li>
+            <li>Kontrak Perjanjian Kerja Sama  ${projectTitle}  Nomor: ${contractNumber} tanggal  ${contractDate}</li> 
             <li>Berita Acara Penyelesaian Pekerjaan (BAPP) ${projectTitle}  Nomor: ${contractNumber}  tanggal ${contractDate} </li>
         </ol>
         <p>Dengan ini menyatakan bahwa:</p>
@@ -467,13 +548,48 @@ const generateBastTemplate = (project) => {
         };
     });
 };
+const handleCopyData = async (item) => {
+    if (!window.confirm("Yakin ingin copy data ini?")) return;
+
+    try {
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        const copiedData = {
+            ...item,
+
+            // 🔥 WAJIB biar jadi data baru
+            id: null,
+
+            // optional reset / update
+            inspection_date: todayStr,
+            progress_date: todayStr,
+            handover_date: todayStr,
+        };
+
+        const response = await fetch(`${PROJECT_DOCUMENT_URL}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(copiedData)
+        });
+
+        if (!response.ok) throw new Error("Copy gagal");
+
+        await fetchDocuments();
+
+        showNotification("Data berhasil disalin!", "success");
+
+    } catch (err) {
+        console.error(err);
+        showNotification("Gagal copy data", "error");
+    }
+};
     return (
         <div className="max-w-7xl mx-auto" style={{ fontFamily: 'Arial, sans-serif' }}>
             {/* INJECTOR CSS: MENJAMIN FORMAT ALIGNMENT, LIST BULLET & NUMBERING BERJALAN SEMPURNA */}
             <style>{`
                 .ql-container, .ql-editor, .ql-editor p, .ql-editor li, .static-html-print-output, .static-html-print-output p, .static-html-print-output li { 
                     font-family: Arial, sans-serif !important; 
-                    font-size: 12px !important; 
+                    font-size: 14px !important; 
                     color: #000000 !important; 
                 }
                 /* Memaksa text alignment sinkron saat dirender oleh html2canvas */
@@ -608,6 +724,7 @@ const generateBastTemplate = (project) => {
                                                 <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 -960 960 960"><path d="M480-320q75 0 127.5-52.5T660-500q0-75-52.5-127.5T480-680q-75 0-127.5 52.5T300-500q0 75 52.5 127.5T480-320Zm0-80q-42 0-71-29t-29-71q0-42 29-71t71-29q42 0 71 29t29 71q0 42-29 71t-71 29Zm0 160q-139 0-251.5-76.5T40-500q61-125 173.5-201.5T480-778q139 0 251.5 76.5T920-500q-61 125-173.5 201.5T480-240Z"/></svg>
                                                 <span>Lihat</span>
                                             </button>
+                                            <button onClick={() => handleCopyData(item)} title="Salin/Copy Data" className="py-2 px-2 text-xs font-semibold bg-amber-50 hover:bg-amber-100 text-amber-600 rounded-xl transition flex-1 flex items-center justify-center gap-1 border border-amber-100"><svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 -960 960 960"><path d="M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480q0 33-23.5 56.5T720-240H360Zm0-80h360v-480H360v480ZM200-80q-33 0-56.5-23.5T120-160v-560h80v560h440v80H200Z"/></svg><span>Salin</span></button>
                                             <button onClick={() => handleEditClick(item)} title="Ubah Data" className="py-2 px-2 text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl transition flex-1 flex items-center justify-center gap-1 border border-indigo-100">
                                                 <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 -960 960 960"><path d="M200-200h57l391-391-57-57-391 391v57Zm-80 80v-170l528-527q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L290-120H120Z"/></svg>
                                                 <span>Edit</span>
@@ -649,6 +766,7 @@ const generateBastTemplate = (project) => {
                                             <button onClick={() => handleOpenPreview(item)} title="Pratinjau PDF" className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition inline-flex items-center justify-center">
                                                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 -960 960 960"><path d="M480-320q75 0 127.5-52.5T660-500q0-75-52.5-127.5T480-680q-75 0-127.5 52.5T300-500q0 75 52.5 127.5T480-320Zm0-80q-42 0-71-29t-29-71q0-42 29-71t71-29q42 0 71 29t29 71q0 42-29 71t-71 29Zm0 160q-139 0-251.5-76.5T40-500q61-125 173.5-201.5T480-778q139 0 251.5 76.5T920-500q-61 125-173.5 201.5T480-240Z"/></svg>
                                             </button>
+                                            <button onClick={() => handleCopyData(item)} title="Salin/Duplikat Data" className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition inline-flex items-center justify-center"><svg className="w-5 h-5" fill="currentColor" viewBox="0 -960 960 960"><path d="M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480q0 33-23.5 56.5T720-240H360Zm0-80h360v-480H360v480ZM200-80q-33 0-56.5-23.5T120-160v-560h80v560h440v80H200Z"/></svg></button>
                                             <button onClick={() => handleEditClick(item)} title="Ubah Data" className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition inline-flex items-center justify-center">
                                                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 -960 960 960"><path d="M200-200h57l391-391-57-57-391 391v57Zm-80 80v-170l528-527q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L290-120H120Z"/></svg>
                                             </button>
@@ -877,7 +995,24 @@ const generateBastTemplate = (project) => {
                                             <div className="flex justify-between items-center border-b pb-1 gap-2">
                                                 <span className="text-xs font-bold text-gray-700">👤 PIHAK PERTAMA (I)</span>
                                                 <label className="inline-flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 cursor-pointer text-[10px] font-semibold text-blue-700">
-                                                    <input type="checkbox" className="rounded text-blue-600 w-3 h-3" checked={syncBappPihak1} onChange={(e) => setSyncBappPihak1(e.target.checked)} />
+                                                    {/* <input type="checkbox" className="rounded text-blue-600 w-3 h-3" checked={syncBappPihak1} onChange={(e) => setSyncBappPihak1(e.target.checked)} /> */}
+                                                    <input
+                                                        type="checkbox"
+                                                        className="rounded text-blue-600 w-3 h-3"
+                                                        checked={syncBappPihak1}
+                                                        onChange={(e) => {
+                                                            const checked = e.target.checked;
+                                                            setSyncBappPihak1(checked);
+
+                                                            if (checked) {
+                                                                setFormData(prev => ({
+                                                                    ...prev,
+                                                                    progress_officer_name_1: prev.inspection_officer_name_1,
+                                                                    progress_officer_role_1: prev.inspection_officer_role_1,
+                                                                }));
+                                                            }
+                                                        }}
+                                                    />
                                                     <span>Sama dengan BAP</span>
                                                 </label>
                                             </div>
@@ -890,7 +1025,18 @@ const generateBastTemplate = (project) => {
                                             <div className="flex justify-between items-center border-b pb-1 gap-2">
                                                 <span className="text-xs font-bold text-gray-700">👤 PIHAK KEDUA (II)</span>
                                                 <label className="inline-flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 cursor-pointer text-[10px] font-semibold text-blue-700">
-                                                    <input type="checkbox" className="rounded text-blue-600 w-3 h-3" checked={syncBappPihak2} onChange={(e) => setSyncBappPihak2(e.target.checked)} />
+                                                    <input type="checkbox" className="rounded text-blue-600 w-3 h-3" checked={syncBappPihak2} onChange={(e) => {
+                                                        const checked = e.target.checked;
+                                                        setSyncBappPihak2(checked);
+
+                                                        if (checked) {
+                                                            setFormData(prev => ({
+                                                                ...prev,
+                                                                progress_officer_name_2: prev.inspection_officer_name_2,
+                                                                progress_officer_role_2: prev.inspection_officer_role_2,
+                                                            }));
+                                                        }
+                                                    }} />
                                                     <span>Sama dengan BAP</span>
                                                 </label>
                                             </div>
@@ -996,22 +1142,47 @@ const generateBastTemplate = (project) => {
         {previewLetter && (() => {
             
             const renderLembarHalaman = (judulDokumen, tglDokumen, p1Nama, p1Jabacy, p2Nama, p2Jabacy, isiDeskripsiText, fieldKeyName, hasMeterai) => {
-                const { hari, tanggalTerbilang } = getHariDanTerbilang(tglDokumen);
+                const { hari, tanggalTerbilang, tanggalAngka } = getHariDanTerbilang(tglDokumen);
                 return (
                     /* Mengubah penataan halaman menjadi flex flex-col justify-start agar posisi TTD naik mengikuti isi teks */
-                    <div className="pdf-page-bundle bg-white text-black shrink-0 shadow-2xl relative p-[65px] pt-[105px] flex flex-col justify-start mb-10" style={{ width: "794px", height: "1122px", boxSizing: "border-box", fontFamily: "Arial, sans-serif" }}>
-                        <img src={`${window.location.origin}/crop2026.png`} crossOrigin="anonymous" className="absolute top-0 left-0 w-[794px] h-[1122px] z-0 pointer-events-none select-none" alt="Kop Surat" />
+                   <div
+    className="pdf-page-bundle bg-white text-black shrink-0 relative flex flex-col justify-start mb-0"
+     style={{
+        width: "794px",
+        height: "1122px",
+        boxSizing: "border-box",
+        fontFamily: "Arial, sans-serif",
+        padding: "15px",
+           
+    }}
+    
+>
+                        {/* <img src={`${window.location.origin}/crop2026.png`} crossOrigin="anonymous" className="absolute top-0 left-0 w-[794px] h-[1122px] z-0 pointer-events-none select-none" alt="Kop Surat" /> */}
                         
-                        <div className="relative z-10 flex-1 flex flex-col justify-start">
+                        <div className="relative z-10 flex-1 flex flex-col justify-start"    style={{
+        width: "98%", 
+        height: "100%", 
+ 
+        margin: "auto",
+
+        border: "1px solid #000",
+        boxSizing: "border-box",
+
+        // padding harus sama semua sisi
+        padding: "20px",
+
+        display: "flex",
+        flexDirection: "column"
+    }}>
                             <div>
                                 {/* JUDUL: Tepat diset ke 14px (text-[14px]) */}
                                 <div className="text-center mb-5">
                                     {/* JUDUL: Tepat diset ke 14px & Garis diletakkan di bawah teks kedua */}
                                     <div className="text-center mb-5 flex flex-col items-center">
-                                        <h2 className="text-[14px] font-bold uppercase tracking-wide leading-tight" style={{ fontFamily: "Arial, sans-serif" }}>
+                                        <h2 className="text-[18px] font-bold uppercase tracking-wide leading-tight" style={{ fontFamily: "Arial, sans-serif" }}>
                                             {judulDokumen}
                                         </h2>
-                                        <h3 className="text-[14px] font-bold uppercase tracking-wide leading-tight mt-1" style={{ fontFamily: "Arial, sans-serif" }}>
+                                        <h3 className="text-[18px] font-bold uppercase tracking-wide leading-tight mt-1" style={{ fontFamily: "Arial, sans-serif" }}>
                                             {getProjectTitle(previewLetter.project_id)}
                                         </h3> 
                                         {/* Garis horizontal ganda (Double Border) khas surat resmi */}
@@ -1020,16 +1191,16 @@ const generateBastTemplate = (project) => {
                                 </div>
 
                                 {/* PEMBUKA */}
-                                <div className="text-[12px] text-justify mb-4" style={{ lineHeight: docLineSpacing, fontFamily: "Arial, sans-serif" }}>
-                                    Pada hari ini, {tanggalTerbilang} bertempat di <span className="font-semibold">{previewLetter.location || "____________________"}</span>, kami yang bertandatangan di bawah ini:
+                                <div className="text-[14px] text-justify mb-4" style={{ lineHeight: docLineSpacing, fontFamily: "Arial, sans-serif" }}>
+                                    Pada hari ini {hari}, {tanggalTerbilang}  ({tanggalAngka}) bertempat di {previewLetter.location || "____________________"}, kami yang bertandatangan di bawah ini:
                                 </div>
 
                                 {/* IDENTITAS PIHAK */}
-                                <div className="text-[12px] space-y-3 mb-4" style={{ lineHeight: docLineSpacing, fontFamily: "Arial, sans-serif" }}>
+                                <div className="text-[14px] space-y-3 mb-4" style={{ lineHeight: docLineSpacing, fontFamily: "Arial, sans-serif" }}>
                                     <div className="grid grid-cols-[30px_1fr] items-start">
                                         <div className="font-bold">I.</div>
                                         <div>
-                                            <table className="text-[12px] border-collapse py-0" style={{ fontFamily: "Arial, sans-serif" }}>
+                                            <table className="text-[14px] border-collapse py-0" style={{ fontFamily: "Arial, sans-serif" }}>
                                                 <tbody>
                                                     <tr><td className="w-[85px] py-0.5">Nama</td><td className="w-[20px] text-center py-0.5">:</td><td className="font-semibold py-0.5">{p1Nama || '-'}</td></tr>
                                                     <tr><td className="py-0.5">Jabatan</td><td className="text-center py-0.5">:</td><td className="py-0.5">{p1Jabacy || '-'}</td></tr>
@@ -1043,7 +1214,7 @@ const generateBastTemplate = (project) => {
                                     <div className="grid grid-cols-[30px_1fr] items-start pt-0.5">
                                         <div className="font-bold">II.</div>
                                         <div>
-                                            <table className="text-[12px] border-collapse py-0" style={{ fontFamily: "Arial, sans-serif" }}>
+                                            <table className="text-[14px] border-collapse py-0" style={{ fontFamily: "Arial, sans-serif" }}>
                                                 <tbody>
                                                     <tr><td className="w-[85px] py-0.5">Nama</td><td className="w-[20px] text-center py-0.5">:</td><td className="font-semibold py-0.5">{p2Nama || '-'}</td></tr>
                                                     <tr><td className="py-0.5">Jabatan</td><td className="text-center py-0.5">:</td><td className="py-0.5">{p2Jabacy || '-'}</td></tr>
@@ -1071,12 +1242,12 @@ const generateBastTemplate = (project) => {
                             </div>
 
                             {/* TANDA TANGAN: Menggunakan margin kecil agar merapat di bawah penutup */}
-                            <div className="grid grid-cols-2 text-center text-[12px] pt-1 mt-2" style={{ fontFamily: "Arial, sans-serif" }}>
+                            <div className="grid grid-cols-2 text-center text-[14px] pt-1 mt-2" style={{ fontFamily: "Arial, sans-serif" }}>
                                 <div className="flex flex-col justify-between items-center h-[150px]">
                                     <p className="font-bold uppercase">PIHAK PERTAMA</p>
                                     <div>
                                         <p className="font-bold text-gray-900 underline">{p1Nama || "____________________"}</p>
-                                        <p className="text-[11px] text-gray-600 mt-0.5">{p1Jabacy || "Jabatan Pihak I"}</p>
+                                        <p className="text-[14px] text-gray-600 mt-0.5">{p1Jabacy || "Jabatan Pihak I"}</p>
                                     </div>
                                 </div>
                                 <div className="flex flex-col justify-between items-center h-[150px] relative">
@@ -1084,7 +1255,7 @@ const generateBastTemplate = (project) => {
                                 
                                     <div>
                                         <p className="font-bold text-gray-900 underline">{p2Nama || "____________________"}</p>
-                                        <p className="text-[11px] text-gray-600 mt-0.5">{p2Jabacy || "Jabatan Pihak II"}</p>
+                                        <p className="text-[14px] text-gray-600 mt-0.5">{p2Jabacy || "Jabatan Pihak II"}</p>
                                     </div>
                                 </div>
                             </div>
@@ -1105,7 +1276,7 @@ const generateBastTemplate = (project) => {
                         {/* Lembar BAP (Selalu muncul karena tidak dinonaktifkan) */}
                         <div className="text-white text-xs font-mono uppercase bg-amber-600/20 px-4 py-1.5 rounded-full mb-2 border border-amber-500/30">Lembar 1: (BAP)</div>
                         {renderLembarHalaman(
-                            "BERITA ACARA PEMERIKSAAN PEKERJAAN (BAP)",
+                            "BERITA ACARA PEKERJAAN",
                             previewLetter.inspection_date,
                             previewLetter.inspection_officer_name_1, previewLetter.inspection_officer_role_1,
                             previewLetter.inspection_officer_name_2, previewLetter.inspection_officer_role_2,

@@ -90,7 +90,7 @@ app.post('/api/login', (req, res) => {
             // Kita hanya mengambil menu yang status 'is_view'-nya aktif ('1')
             // =========================================================================
             const sqlAuth = `
-                SELECT menu_id, is_view, is_create, is_edit, is_delete, is_export, is_duplicate, is_unlock 
+                SELECT menu_id,  is_view, is_create, is_edit, is_delete, is_export, is_duplicate, is_unlock 
                 FROM module_authority 
                 WHERE role_id = ? AND is_view = '1'
             `;
@@ -1067,8 +1067,8 @@ app.post('/api/menus', (req, res) => {
 
     const values = [
         parent_id || null, title, url || null, description || null, menu_order || 0, type || null,
-        is_view || 'N', is_create || 'N', is_edit || 'N', is_delete || 'N', is_export || 'N',
-        is_duplicate || 'N', is_unlock || 'N', is_active || 1, class_active || null, icon || null
+        is_view || '0', is_create || '0', is_edit || '0', is_delete || '0', is_export || '0',
+        is_duplicate || '0', is_unlock || '0', is_active || 1, class_active || null, icon || null
     ];
 
     db.query(query, values, (err, results) => {
@@ -1497,18 +1497,35 @@ app.delete('/api/users/:id', (req, res) => {
 app.get('/api/module-authority/:role_id', (req, res) => {
     const roleId = req.params.role_id;
 
-    // Ambil data menu urut berdasarkan menu_order (Sama seperti /api/menus)
-    const sqlMenu = "SELECT menu_id, title, parent_id, menu_order FROM menu ORDER BY menu_order ASC";
+    // 1. Kueri SQL: Ambil data menu LENGKAP dengan status kolom 0 dan 1 miliknya
+    // Pastikan kolom is_view, is_create, dst. ada di tabel 'menu' Anda
+    const sqlMenu = `
+        SELECT 
+            menu_id, 
+            title, 
+            parent_id, 
+            menu_order, 
+            is_active,
+            is_view, 
+            is_create, 
+            is_edit, 
+            is_delete, 
+            is_export, 
+            is_duplicate, 
+            is_unlock
+        FROM menu 
+        WHERE is_active = 1
+        ORDER BY menu_order ASC`;
     
     db.query(sqlMenu, (errMenu, menus) => {
         if (errMenu) return res.status(500).json({ error: errMenu.message });
 
-        // Ambil data authority
+        // 2. Ambil data hak akses role dari tabel module_authority
         const sqlAuth = "SELECT * FROM module_authority WHERE role_id = ?";
         db.query(sqlAuth, [roleId], (errAuth, authorities) => {
             if (errAuth) return res.status(500).json({ error: errAuth.message });
 
-            // Ikat hak akses berdasarkan menu_id ke dalam Map (Key-Value)
+            // 3. Masukkan hak akses tabel transaksi ke dalam Map (Key-Value)
             const authMap = {};
             authorities.forEach(auth => {
                 authMap[String(auth.menu_id)] = {
@@ -1522,37 +1539,50 @@ app.get('/api/module-authority/:role_id', (req, res) => {
                 };
             });
 
-            // Satukan struktur menu dengan hak aksesnya (Flat Data)
+            // 4. Strukturkan ulang data sebelum dikirim ke Frontend
             const matrixData = menus.map(menu => {
                 const idString = String(menu.menu_id);
+                
                 return {
                     menu_id: menu.menu_id,
                     title: menu.title,
                     parent_id: menu.parent_id,
                     menu_order: menu.menu_order,
+                    is_active: String(menu.is_active) === '1' ? '1' : '0',
+                    
+                    // MEMISAHKAN KONFIGURASI MENU AGAR DIBACA FRONTEND
+                    // Ini yang menentukan checkbox muncul/hilang total di frontend
+                    menu_config: {
+                        is_view: String(menu.is_view) === '1' ? '1' : '0',
+                        is_create: String(menu.is_create) === '1' ? '1' : '0',
+                        is_edit: String(menu.is_edit) === '1' ? '1' : '0',
+                        is_delete: String(menu.is_delete) === '1' ? '1' : '0',
+                        is_export: String(menu.is_export) === '1' ? '1' : '0',
+                        is_duplicate: String(menu.is_duplicate) === '1' ? '1' : '0',
+                        is_unlock: String(menu.is_unlock) === '1' ? '1' : '0'
+                    },
+                    
+                    // Nilai centang aktif/tidak untuk Role saat ini
                     access: authMap[idString] || {
                         is_view: '0', is_create: '0', is_edit: '0', is_delete: '0', is_export: '0', is_duplicate: '0', is_unlock: '0'
                     }
                 };
             });
 
-            // =========================================================================
-            // ADAPTASI LOGIKA UTAMA: Memisahkan Parent & Child Persis Seperti /api/menus
-            // =========================================================================
+            // 5. Susun menjadi pola Pohon Berundak (Parent & Child Tree)
             const parents = [];
             const children = [];
 
             matrixData.forEach(item => {
-                if (item.menu_id === 1) {
-                    parents.push({ ...item, subs: [] });
-                } else if (item.parent_id === 1 || !item.parent_id) {
+                // Aturan penentuan parent menu
+                if (item.menu_id === 1 || item.parent_id === 1 || !item.parent_id) {
                     parents.push({ ...item, subs: [] });
                 } else {
                     children.push(item);
                 }
             });
 
-            // Masukkan setiap child ke parent_id yang cocok
+            // Masukkan anak-anak ke dalam sub-menu yang sesuai
             children.forEach(child => {
                 const parent = parents.find(p => p.menu_id === child.parent_id);
                 if (parent) {
@@ -1562,7 +1592,7 @@ app.get('/api/module-authority/:role_id', (req, res) => {
                 }
             });
 
-            // Urutkan kembali parent berdasarkan menu_order asli database
+            // Urutkan ulang menu induk berdasarkan order asli database
             parents.sort((a, b) => a.menu_order - b.menu_order);
 
             // Kirim hasilnya ke React Frontend

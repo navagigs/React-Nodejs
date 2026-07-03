@@ -26,13 +26,13 @@ const MenuManagement = () => {
     description: '',
     menu_order: 1,
     type: '2',
-    is_view: 'N',
-    is_create: 'N',
-    is_edit: 'N',
-    is_delete: 'N',
-    is_export: 'N',
-    is_duplicate: 'N',
-    is_unlock: 'N',
+    is_view: '0',
+    is_create: '0',
+    is_edit: '0',
+    is_delete: '0',
+    is_export: '0',
+    is_duplicate: '0',
+    is_unlock: '0',
     is_active: 1,
     class_active: '',
     icon: ''
@@ -161,7 +161,7 @@ const fetchMenus = async () => {
 
   const handleCheckboxChange = (e) => {
     const { name, checked } = e.target;
-    setCurrentMenu({ ...currentMenu, [name]: checked ? 'Y' : 'N' });
+    setCurrentMenu({ ...currentMenu, [name]: checked ? '1' : '0' });
   };
 
   const handleSubmit = async (e) => {
@@ -229,7 +229,7 @@ const fetchMenus = async () => {
     setIsEditing(false);
     setCurrentMenu({
       menu_id: '', parent_id: '', title: '', url: '', description: '', menu_order: 1, type: '2',
-      is_view: 'N', is_create: 'N', is_edit: 'N', is_delete: 'N', is_export: 'N', is_duplicate: 'N', is_unlock: 'N',
+      is_view: '0', is_create: '0', is_edit: '0', is_delete: '0', is_export: '0', is_duplicate: '0', is_unlock: '0',
       is_active: 1, class_active: '', icon: ''
     });
     setIsDropdownOpen(false);
@@ -251,7 +251,7 @@ const fetchMenus = async () => {
       description: '',
       menu_order: nextOrder,
       type: '2',
-      is_view: 'N', is_create: 'N', is_edit: 'N', is_delete: 'N', is_export: 'N', is_duplicate: 'N', is_unlock: 'N',
+      is_view: '0', is_create: '0', is_edit: '0', is_delete: '0', is_export: '0', is_duplicate: '0', is_unlock: '0',
       is_active: 1,
       class_active: '',
       icon: ''
@@ -644,7 +644,7 @@ const fetchMenus = async () => {
                         <input 
                           type="checkbox" 
                           name={priv.key} 
-                          checked={currentMenu[priv.key] === 'Y'} 
+                          checked={currentMenu[priv.key] === '1'} 
                           onChange={handleCheckboxChange} 
                           className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 mt-0.5 cursor-pointer" 
                         />
