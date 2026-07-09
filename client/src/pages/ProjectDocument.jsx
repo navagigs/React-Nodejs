@@ -52,6 +52,40 @@ const ProjectDocument = ({ projectId }) => {
     const [syncBastPihak2, setSyncBastPihak2] = useState(false);
     const [portfolioSearch, setPortfolioSearch] = useState('');
     const [description, setDescription] = useState('');
+    
+    const [userAuth, setUserAuth] = useState({ is_view: '0', is_create: '0', is_edit: '0', is_delete: '0', is_export: '0' }); // Default semua izin 0 (tidak ada akses)
+   useEffect(() => {
+       const checkPermissions = () => {
+         try {
+           const rawPermissions = localStorage.getItem('permissions');
+           if (!rawPermissions) return;
+           
+           const permissionsArray = JSON.parse(rawPermissions);
+           const TARGET_MENU_ID = 149; 
+   
+           const currentMenuAuth = permissionsArray.find(
+             (auth) => Number(auth.menu_id) === TARGET_MENU_ID
+           );
+    
+   
+           if (currentMenuAuth) {
+             setUserAuth({ 
+                is_view: String(currentMenuAuth.is_view ?? '0').trim(),
+                is_create: String(currentMenuAuth.is_create ?? '0').trim(),
+                is_edit: String(currentMenuAuth.is_edit ?? '0').trim(),
+                is_delete: String(currentMenuAuth.is_delete ?? '0').trim(),
+                is_export: String(currentMenuAuth.is_export ?? '0').trim()
+             });
+           }
+           console.log(currentMenuAuth.is_create);
+         } catch (e) {
+           console.error("Gagal memuat permission:", e);
+         }
+       };
+   
+       checkPermissions();
+     }, []);
+
 
     // STATE FORM: MURNI KOSONG SESUAI STRUKTUR API
     const [formData, setFormData] = useState({
@@ -183,12 +217,17 @@ const ProjectDocument = ({ projectId }) => {
         }
     };
 
-    useEffect(() => {
+   
+   
+ useEffect(() => {
+    // if (userAuth.is_view === '1') {
+      fetchClients();
         fetchDocuments();
         fetchPortfolios();
 
-        fetchClients(); 
-    }, [projectId]);
+        fetchClients();
+    // } 
+    }, [projectId], [userAuth.is_view]);
 
     const resetForm = () => {
         setFormData({
@@ -583,6 +622,18 @@ const handleCopyData = async (item) => {
         showNotification("Gagal copy data", "error");
     }
 };
+    // BLOCK SELURUH ELEMEN JIKA TIDAK MEMILIKI AKSES VIEW SAMA SEKALI
+     if (userAuth.is_view !== '1') {
+                return (
+                <div className="max-w-7xl mx-auto p-8 text-center bg-white border border-gray-100 shadow-xl rounded-2xl">
+                    <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m0-6h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-900">Akses Ditolak</h3>
+                    <p className="text-gray-500 text-sm mt-2">Maaf, akun Anda tidak memiliki izin untuk melihat halaman ini.</p>
+                </div>
+                );
+    }
     return (
         <div className="max-w-7xl mx-auto" style={{ fontFamily: 'Arial, sans-serif' }}>
             {/* INJECTOR CSS: MENJAMIN FORMAT ALIGNMENT, LIST BULLET & NUMBERING BERJALAN SEMPURNA */}
@@ -629,13 +680,16 @@ const handleCopyData = async (item) => {
   
             {/* 1. HALAMAN TABEL UTAMA */}
             {viewMode === 'table' && (() => {
+                
             // Hitung indeks data untuk Paging
             const indexOfLastItem = currentPage * itemsPerPage;
             const indexOfFirstItem = indexOfLastItem - itemsPerPage;
             const currentItems = filteredLetters.slice(indexOfFirstItem, indexOfLastItem);
             const totalPages = Math.ceil(filteredLetters.length / itemsPerPage);
 
+           
             return (
+                
                 <div className="bg-white rounded-2xl shadow-xl shadow-gray-200/50 border border-gray-100 p-4 sm:p-8">
                     {/* Header Section */}
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 sm:mb-8 gap-4 border-b border-gray-100 pb-6">
@@ -643,15 +697,17 @@ const handleCopyData = async (item) => {
                             <h2 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">Dokumen Proyek</h2>
                             <p className="text-xs sm:text-sm text-gray-500 mt-1">Kelola data inspeksi, progress, dan serah terima administrasi proyek.</p>
                         </div>
-                        <button 
-                            onClick={() => setViewMode('form')} 
-                            className="w-full sm:w-auto justify-center bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition shadow-lg shadow-indigo-500/30 active:scale-95"
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/>
-                            </svg>
-                            Buat Dokumen Baru
-                        </button>
+                        {Number(userAuth.is_create) === 1 && (
+                            <button 
+                                onClick={() => setViewMode('form')} 
+                                className="w-full sm:w-auto justify-center bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition shadow-lg shadow-indigo-500/30 active:scale-95"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/>
+                                </svg>
+                                Buat Dokumen Baru
+                            </button>
+                        )}
                     </div>
 
                     {/* Filter & Search Bar Section */}
@@ -744,7 +800,7 @@ const handleCopyData = async (item) => {
                                     <tr> 
                                         <th className="py-4 px-4 w-12 text-center">No.</th> 
                                         <th className="py-4 px-4">Proyek</th> 
-                                        <th className="py-4 px-4">Tanggal Inspeksi</th>
+                                        <th className="py-4 px-4">Tanggal</th>
                                         <th className="py-4 pr-6 text-right">Aksi</th>
                                     </tr>
                                 </thead>
@@ -763,16 +819,25 @@ const handleCopyData = async (item) => {
                                         </td> 
                                         <td className="py-4 px-4 text-sm text-gray-500">{formatDate(item.inspection_date)}</td>
                                         <td className="py-4 pr-6 text-right space-x-1">
-                                            <button onClick={() => handleOpenPreview(item)} title="Pratinjau PDF" className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition inline-flex items-center justify-center">
-                                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 -960 960 960"><path d="M480-320q75 0 127.5-52.5T660-500q0-75-52.5-127.5T480-680q-75 0-127.5 52.5T300-500q0 75 52.5 127.5T480-320Zm0-80q-42 0-71-29t-29-71q0-42 29-71t71-29q42 0 71 29t29 71q0 42-29 71t-71 29Zm0 160q-139 0-251.5-76.5T40-500q61-125 173.5-201.5T480-778q139 0 251.5 76.5T920-500q-61 125-173.5 201.5T480-240Z"/></svg>
-                                            </button>
+                                           
+                                            {userAuth.is_export === '1' && (
+                                                <button onClick={() => handleOpenPreview(item)} title="Pratinjau PDF" className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition inline-flex items-center justify-center">
+                                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 -960 960 960"><path d="M480-320q75 0 127.5-52.5T660-500q0-75-52.5-127.5T480-680q-75 0-127.5 52.5T300-500q0 75 52.5 127.5T480-320Zm0-80q-42 0-71-29t-29-71q0-42 29-71t71-29q42 0 71 29t29 71q0 42-29 71t-71 29Zm0 160q-139 0-251.5-76.5T40-500q61-125 173.5-201.5T480-778q139 0 251.5 76.5T920-500q-61 125-173.5 201.5T480-240Z"/></svg>
+                                                </button>
+                                            )}
                                             <button onClick={() => handleCopyData(item)} title="Salin/Duplikat Data" className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition inline-flex items-center justify-center"><svg className="w-5 h-5" fill="currentColor" viewBox="0 -960 960 960"><path d="M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480q0 33-23.5 56.5T720-240H360Zm0-80h360v-480H360v480ZM200-80q-33 0-56.5-23.5T120-160v-560h80v560h440v80H200Z"/></svg></button>
-                                            <button onClick={() => handleEditClick(item)} title="Ubah Data" className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition inline-flex items-center justify-center">
-                                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 -960 960 960"><path d="M200-200h57l391-391-57-57-391 391v57Zm-80 80v-170l528-527q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L290-120H120Z"/></svg>
-                                            </button>
-                                            <button onClick={() => handleDeleteClick(item.id)} title="Hapus Dokumen" className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition inline-flex items-center justify-center">
-                                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 -960 960 960"><path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360Z"/></svg>
-                                            </button>
+                                            {/* TOMBOL EDIT */}
+                                            {userAuth.is_edit === '1' && (
+                                                <button onClick={() => handleEditClick(item)} title="Ubah Data" className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition inline-flex items-center justify-center">
+                                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 -960 960 960"><path d="M200-200h57l391-391-57-57-391 391v57Zm-80 80v-170l528-527q12-11 26.5-17t30.5-6q16 0 31 6t26 18l55 56q12 11 17.5 26t5.5 30q0 16-5.5 30.5T817-647L290-120H120Z"/></svg>
+                                                </button>
+                                            )}
+                                            {/* TOMBOL DELETE */}
+                                            {userAuth.is_delete === '1' && (
+                                                <button onClick={() => handleDeleteClick(item.id)} title="Hapus Dokumen" className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition inline-flex items-center justify-center">
+                                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 -960 960 960"><path d="M280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520ZM360-280h80v-360h-80v360Zm160 0h80v-360h-80v360Z"/></svg>
+                                                </button>
+                                            )}
                                         </td>
                                     </tr>
                                     ))}
@@ -844,15 +909,16 @@ const handleCopyData = async (item) => {
 
            {/* VIEW MODE: INPUT FORM UTAMA */}
          {viewMode === 'form' && (
-                <div className="bg-white rounded-2xl shadow-xl shadow-gray-200/50 border border-gray-100 p-6 sm:p-8 max-w-5xl mx-auto my-6">
-                    {/* Form Header */}
-                    <div className="mb-6 border-b border-gray-100 pb-4">
+                <div className="bg-white rounded-2xl shadow-xl shadow-gray-200/50 border border-gray-100 p-6 mx-auto my-6">
+                    <div className="flex justify-between items-center pb-6 border-b border-gray-100 mb-6">
                         <h3 className="text-lg sm:text-xl font-bold text-gray-900 tracking-tight">
                             {formData.id ? '✏️ Perbarui Dokumen Administrasi Proyek' : '➕ Buat Dokumen Administrasi Baru'}
                         </h3>
-                        <p className="text-xs text-gray-500 mt-1">Lengkapi berkas BAP, BAPP, dan BAST untuk kebutuhan cetak.</p>
+                        <button onClick={resetForm} className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-semibold transition">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+                            Kembali ke Daftar
+                        </button>
                     </div>
-
                     <form onSubmit={handleSaveDocument} className="space-y-6">
                         
                         {/* ====== KELOMPOK DATA UTAMA & PERUSAHAAN ====== */}
@@ -1146,34 +1212,34 @@ const handleCopyData = async (item) => {
                 return (
                     /* Mengubah penataan halaman menjadi flex flex-col justify-start agar posisi TTD naik mengikuti isi teks */
                    <div
-    className="pdf-page-bundle bg-white text-black shrink-0 relative flex flex-col justify-start mb-0"
-     style={{
-        width: "794px",
-        height: "1122px",
-        boxSizing: "border-box",
-        fontFamily: "Arial, sans-serif",
-        padding: "15px",
-           
-    }}
-    
->
+                        className="pdf-page-bundle bg-white text-black shrink-0 relative flex flex-col justify-start mb-0"
+                        style={{
+                            width: "794px",
+                            height: "1122px",
+                            boxSizing: "border-box",
+                            fontFamily: "Arial, sans-serif",
+                            padding: "15px",
+                            
+                        }}
+                        
+                    >
                         {/* <img src={`${window.location.origin}/crop2026.png`} crossOrigin="anonymous" className="absolute top-0 left-0 w-[794px] h-[1122px] z-0 pointer-events-none select-none" alt="Kop Surat" /> */}
                         
                         <div className="relative z-10 flex-1 flex flex-col justify-start"    style={{
-        width: "98%", 
-        height: "100%", 
- 
-        margin: "auto",
+                                width: "98%", 
+                                height: "100%", 
+                        
+                                margin: "auto",
 
-        border: "1px solid #000",
-        boxSizing: "border-box",
+                                border: "1px solid #000",
+                                boxSizing: "border-box",
 
-        // padding harus sama semua sisi
-        padding: "20px",
+                                // padding harus sama semua sisi
+                                padding: "20px",
 
-        display: "flex",
-        flexDirection: "column"
-    }}>
+                                display: "flex",
+                                flexDirection: "column"
+                            }}>
                             <div>
                                 {/* JUDUL: Tepat diset ke 14px (text-[14px]) */}
                                 <div className="text-center mb-5">

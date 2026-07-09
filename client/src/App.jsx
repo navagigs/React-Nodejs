@@ -5,8 +5,7 @@ import Dashboard from './Dashboard'; // Ini bertindak sebagai LAYOUT (Sidebar + 
 import DashboardHome from './pages/DashboardHome'; // Ini ISI Dashboard (Grafik/Statistik)
 import Portfolio from './pages/Portfolio'; // Ini ISI Portfolio
 import Letter from './pages/Letter'; 
- import ProjectDocument from './pages/ProjectDocument'; // -> Diimport dengan huruf kapital 'L'
-import OrderDetail from './OrderDetail';
+ import ProjectDocument from './pages/ProjectDocument'; //  
 import Clients from './pages/Clients'; 
 import Category from './pages/Category'; 
 import News from './pages/News'; 
@@ -14,13 +13,14 @@ import MenuManagement from './pages/MenuManagement';
 import RoleManagement from './pages/RoleManagement'; 
 import UserManagement from './pages/UserManagement'; 
 import ModuleAuthority from './pages/ModuleAuthority'; 
-import LandingPageCrop from './LandingPageCrop copy';  
+import LandingPageCrop from './LandingPageCrop';  
 
 function App() {
   return (
     <Router>
       <Routes>
       <Route path="/" element={<LandingPageCrop />} />
+      {/* <Route path="/" element={<Login />} /> */}
 
         {/* 1. Halaman Login */}
         <Route path="/login" element={<Login />} />
@@ -57,9 +57,7 @@ function App() {
             <Route path="/hak-akses/role" element={<RoleManagement />} />
             <Route path="/hak-akses/user" element={<UserManagement />} />
             <Route path="/hak-akses/module-authority" element={<ModuleAuthority />} />
-
-            {/* Jika URL /OrderDetail -> Tampilkan Tabel OrderDetail */} 
-            <Route path="/orders/detail" element={<OrderDetail />} />
+ 
             
         </Route>
 

@@ -131,7 +131,7 @@ app.post('/api/login', (req, res) => {
     });
 });
 
-app.get('/api/menus/access/:role_id', (req, res) => {
+ app.get('/api/menus/access/:role_id', (req, res) => {
     const roleId = req.params.role_id;
 
     if (!roleId) {
@@ -142,37 +142,63 @@ app.get('/api/menus/access/:role_id', (req, res) => {
     const sql = `
         SELECT m.* FROM menu m
         INNER JOIN module_authority ma ON m.menu_id = ma.menu_id
-        WHERE ma.role_id = ? AND ma.is_view = '1'
+        WHERE ma.role_id = ? AND ma.is_view = '1' AND m.is_active = '1'
         ORDER BY m.menu_order ASC
     `;
     
     db.query(sql, [roleId], (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
         
-        const parents = [];
-        const children = [];
+        // PENGELOMPOKAN DATA TREE VIA LINEAR MAP (Sama dengan Modul Authority)
+        const menuMap = {};
+        const menuTree = [];
 
-        // Kelompokkan data flat dari DB ke susunan berundak (Tree)
+        // Langkah A: Daftarkan semua menu berizin ke dalam Map dan siapkan array 'subs' kosong
         result.forEach(item => {
-            if (item.menu_id === 1 || item.parent_id === 1 || !item.parent_id) {
-                parents.push({ ...item, subs: [] });
+            menuMap[String(item.menu_id)] = { ...item, subs: [] };
+        });
+
+        // Langkah B: Distribusikan child menu ke dalam properti 'subs' induknya
+        result.forEach(item => {
+            const currentItemInMap = menuMap[String(item.menu_id)];
+            const pId = item.parent_id;
+
+            // Kriteria Penentu MENU UTAMA (ROOT LEVEL):
+            // Dianggap menu utama jika parent_id kosong, bernilai 0, bernilai '0', bernilai 1, atau bernilai '1'
+            const isRoot = !pId || pId === 0 || pId === '0' || pId === 1 || pId === '1';
+
+            if (isRoot) {
+                // Masuk sebagai Menu Level Utama (Terluar) di Sidebar
+                menuTree.push(currentItemInMap);
             } else {
-                children.push(item);
+                // Jika merupakan sub-menu, cari induknya di dalam Map
+                const parentItem = menuMap[String(pId)];
+                if (parentItem) {
+                    // Masukkan ke dalam array sub-menu induknya
+                    parentItem.subs.push(currentItemInMap);
+                } else {
+                    // Jalur Cadangan: Jika induknya tidak ter-select (misal is_view induk bernilai '0'),
+                    // tetap munculkan di level luar agar menu anak tidak hilang hilang misterius
+                    menuTree.push(currentItemInMap);
+                }
             }
         });
 
-        children.forEach(child => {
-            const parent = parents.find(p => p.menu_id === child.parent_id);
-            if (parent) {
-                parent.subs.push(child);
-            } else {
-                parents.push({ ...child, subs: [] });
-            }
-        });
+        // Langkah C: Urutkan menu utama dan seluruh sub-menu secara rekursif berdasarkan menu_order
+        const sortTreeRecursive = (nodes) => {
+            nodes.sort((a, b) => (Number(a.menu_order) || 0) - (Number(b.menu_order) || 0));
+            nodes.forEach(node => {
+                if (node.subs && node.subs.length > 0) {
+                    sortTreeRecursive(node.subs);
+                }
+            });
+        };
+        
+        // Jalankan pengurutan urutan menu
+        sortTreeRecursive(menuTree);
 
-        parents.sort((a, b) => a.menu_order - b.menu_order);
-
-        return res.json(parents);
+        // Kembalikan struktur pohon yang sudah rapi dan siap dibaca Sidebar komponen Anda
+        return res.json(menuTree);
     });
 });
 
@@ -981,34 +1007,35 @@ app.get('/api/menus', (req, res) => {
     db.query(sql, (err, result) => {
         if (err) return res.status(500).json(err);
         
-        const parents = [];
-        const children = [];
+        // 1. Fungsi rekursif untuk mencari sub-menu ke dalam
+        const buildMenuTree = (parentId) => {
+            const currentLevelMenus = [];
 
-        result.forEach(item => {
-            // REVISI: Menggunakan properti 'subs' agar langsung dikenali oleh React frontend
-            if (item.menu_id === 1) {
-                parents.push({ ...item, subs: [] });
-            } else if (item.parent_id === 1 || !item.parent_id) {
-                parents.push({ ...item, subs: [] });
-            } else {
-                children.push(item);
-            }
-        });
+            result.forEach(item => {
+                // Abaikan menu_id = 1 agar tidak masuk ke dalam list (karena 1 adalah ID penanda Induk)
+                if (item.menu_id === 1) return;
 
-        // Masukkan setiap child ke parent_id yang cocok
-        children.forEach(child => {
-            const parent = parents.find(p => p.menu_id === child.parent_id);
-            if (parent) {
-                parent.subs.push(child); // REVISI: ke 'subs'
-            } else {
-                parents.push({ ...child, subs: [] }); // REVISI: ke 'subs'
-            }
-        });
+                // Cek apakah item ini memiliki parent_id yang cocok
+                if (item.parent_id === parentId) {
+                    // Cari anak dari menu ini secara berulang (rekursif)
+                    const subMenus = buildMenuTree(item.menu_id);
+                    
+                    currentLevelMenus.push({
+                        ...item,
+                        subs: subMenus // Menghasilkan struktur bersarang dinamis ke properti 'subs'
+                    });
+                }
+            });
 
-        // Urutkan kembali parent berdasarkan menu_order asli database
-        parents.sort((a, b) => a.menu_order - b.menu_order);
+            // Urutkan berdasarkan menu_order di setiap levelnya
+            return currentLevelMenus.sort((a, b) => a.menu_order - b.menu_order);
+        };
 
-        return res.json(parents);
+        // 2. Mulai perulangan dari parent_id = 1 (karena semua induk utama memiliki parent_id = 1)
+        const menuTree = buildMenuTree(1);
+
+        // 3. Kembalikan hasilnya ke React frontend
+        return res.json(menuTree);
     });
 });
 
@@ -1053,27 +1080,14 @@ app.get('/api/menus-access', (req, res) => {
 });
 // 2. CREATE (POST DATA)
 app.post('/api/menus', (req, res) => {
-    const {
-        parent_id, title, url, description, menu_order, type,
-        is_view, is_create, is_edit, is_delete, is_export, 
-        is_duplicate, is_unlock, is_active, class_active, icon
-    } = req.body;
-
-    const query = `
-        INSERT INTO menu 
-        (parent_id, title, url, description, menu_order, type, is_view, is_create, is_edit, is_delete, is_export, is_duplicate, is_unlock, is_active, class_active, icon) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-
-    const values = [
-        parent_id || null, title, url || null, description || null, menu_order || 0, type || null,
-        is_view || '0', is_create || '0', is_edit || '0', is_delete || '0', is_export || '0',
-        is_duplicate || '0', is_unlock || '0', is_active || 1, class_active || null, icon || null
-    ];
-
-    db.query(query, values, (err, results) => {
+    const { parent_id, title, url, description, menu_order, icon, is_active } = req.body;
+    
+    const sql = `INSERT INTO menu (parent_id, title, url, description, menu_order, icon, is_active) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`;
+                 
+    db.query(sql, [parent_id, title, url, description, menu_order, icon, is_active], (err, result) => {
         if (err) return res.status(500).json(err);
-        res.json({ message: 'Menu berhasil ditambahkan', menu_id: results.insertId });
+        return res.json({ message: "Menu berhasil disimpan", id: result.insertId });
     });
 });
 
@@ -1494,11 +1508,10 @@ app.delete('/api/users/:id', (req, res) => {
 // =========================================================================
 // 1. GET DATA MATRIKS (STRUKTUR SINKRON DENGAN LOGIKA /api/menus)
 // =========================================================================
-app.get('/api/module-authority/:role_id', (req, res) => {
+ app.get('/api/module-authority/:role_id', (req, res) => {
     const roleId = req.params.role_id;
 
-    // 1. Kueri SQL: Ambil data menu LENGKAP dengan status kolom 0 dan 1 miliknya
-    // Pastikan kolom is_view, is_create, dst. ada di tabel 'menu' Anda
+    // 1. Kueri SQL: Ambil data menu LENGKAP dengan status kolom konfigurasi hak aksesnya
     const sqlMenu = `
         SELECT 
             menu_id, 
@@ -1539,7 +1552,7 @@ app.get('/api/module-authority/:role_id', (req, res) => {
                 };
             });
 
-            // 4. Strukturkan ulang data sebelum dikirim ke Frontend
+            // 4. Strukturkan ulang flat data item dari database
             const matrixData = menus.map(menu => {
                 const idString = String(menu.menu_id);
                 
@@ -1550,8 +1563,6 @@ app.get('/api/module-authority/:role_id', (req, res) => {
                     menu_order: menu.menu_order,
                     is_active: String(menu.is_active) === '1' ? '1' : '0',
                     
-                    // MEMISAHKAN KONFIGURASI MENU AGAR DIBACA FRONTEND
-                    // Ini yang menentukan checkbox muncul/hilang total di frontend
                     menu_config: {
                         is_view: String(menu.is_view) === '1' ? '1' : '0',
                         is_create: String(menu.is_create) === '1' ? '1' : '0',
@@ -1562,41 +1573,62 @@ app.get('/api/module-authority/:role_id', (req, res) => {
                         is_unlock: String(menu.is_unlock) === '1' ? '1' : '0'
                     },
                     
-                    // Nilai centang aktif/tidak untuk Role saat ini
                     access: authMap[idString] || {
                         is_view: '0', is_create: '0', is_edit: '0', is_delete: '0', is_export: '0', is_duplicate: '0', is_unlock: '0'
                     }
                 };
             });
 
-            // 5. Susun menjadi pola Pohon Berundak (Parent & Child Tree)
-            const parents = [];
-            const children = [];
+            // 5. PENYUSUNAN STRUKTUR POHON (TREE BUILDER) BERDASARKAN PARENT_ID VIA LINEAR MAP
+            const menuMap = {};
+            const menuTree = [];
 
+            // Langkah A: Daftarkan semua item ke dalam Map objek dan beri array 'subs' kosong
             matrixData.forEach(item => {
-                // Aturan penentuan parent menu
-                if (item.menu_id === 1 || item.parent_id === 1 || !item.parent_id) {
-                    parents.push({ ...item, subs: [] });
+                menuMap[String(item.menu_id)] = { ...item, subs: [] };
+            });
+
+            // Langkah B: Hubungkan anak menu ke array 'subs' milik induknya masing-masing
+            matrixData.forEach(item => {
+                const currentItemInMap = menuMap[String(item.menu_id)];
+                const pId = item.parent_id;
+
+                // Aturan penentuan MENU UTAMA (ROOT LEVEL):
+                // Dianggap menu utama jika parent_id kosong, bernilai 0, atau bernilai 1 (sesuai konfigurasi database Anda)
+                const isRoot = !pId || pId === 0 || pId === '0' || pId === 1 || pId === '1';
+
+                if (isRoot) {
+                    // Masuk sebagai layer paling luar (Root Node)
+                    menuTree.push(currentItemInMap);
                 } else {
-                    children.push(item);
+                    // Jika memiliki induk, cari data induknya di dalam Map menggunakan parent_id
+                    const parentItem = menuMap[String(pId)];
+                    if (parentItem) {
+                        // Masukkan menu ini ke dalam sub-menu (subs) dari induknya
+                        parentItem.subs.push(currentItemInMap);
+                    } else {
+                        // Jalur Cadangan: Jika induknya tidak aktif/tidak terdaftar, 
+                        // tetap tampilkan di luar agar data hak aksesnya tidak hilang tersembunyi
+                        menuTree.push(currentItemInMap);
+                    }
                 }
             });
 
-            // Masukkan anak-anak ke dalam sub-menu yang sesuai
-            children.forEach(child => {
-                const parent = parents.find(p => p.menu_id === child.parent_id);
-                if (parent) {
-                    parent.subs.push(child);
-                } else {
-                    parents.push({ ...child, subs: [] });
-                }
-            });
+            // Langkah C: Fungsi pembantu untuk mengurutkan menu berdasarkan nomor urut (menu_order)
+            const sortTreeRecursive = (nodes) => {
+                nodes.sort((a, b) => (Number(a.menu_order) || 0) - (Number(b.menu_order) || 0));
+                nodes.forEach(node => {
+                    if (node.subs && node.subs.length > 0) {
+                        sortTreeRecursive(node.subs);
+                    }
+                });
+            };
+            
+            // Eksekusi sorting data pohon
+            sortTreeRecursive(menuTree);
 
-            // Urutkan ulang menu induk berdasarkan order asli database
-            parents.sort((a, b) => a.menu_order - b.menu_order);
-
-            // Kirim hasilnya ke React Frontend
-            return res.json(parents);
+            // Kirim struktur data pohon menu berundak ke React Frontend
+            return res.json(menuTree);
         });
     });
 });

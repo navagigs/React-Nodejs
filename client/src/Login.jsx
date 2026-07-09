@@ -49,7 +49,7 @@ const Login = () => {
             <span className="text-indigo-600 text-3xl">⚡</span> StrikingDash
           </h1>
         </div>
-        <div className="text-center">
+        <div className="text-center z-10">
             {/* GANTI src di bawah ini dengan gambar ilustrasi Anda sendiri */}
             <img 
               src="https://img.freepik.com/free-vector/mobile-login-concept-illustration_114360-83.jpg?w=740" 
@@ -76,7 +76,7 @@ const Login = () => {
 
             {error && (
               <div className="bg-red-50 text-red-500 text-sm p-3 rounded mb-4 border border-red-200">
-                {error}
+                 {error}
               </div>
             )}
 

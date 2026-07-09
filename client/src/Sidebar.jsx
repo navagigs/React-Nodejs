@@ -1,85 +1,143 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom'; 
+import { useNavigate, useLocation } from 'react-router-dom';
 import * as Icons from 'lucide-react';
 import { MENU_URL_ACCESS_BY_ROLE } from './Api';
 
-// --- KOMPONEN SINGLE MENU ---
-const SingleMenuItem = ({ title, icon, onClick, isActive, className = '' }) => {
-  const TargetIcon = typeof icon === 'string' ? Icons[icon] : icon;
+// --- FUNGSI UTAMA UNTUK CEK NORMALISASI PATH AGAR PASTI COCOK ---
+const checkActivePath = (currentPath, menuUrl) => {
+  if (!menuUrl || !currentPath) return false;
+  
+  // Normalisasi hilangkan trailing slash di awal dan akhir untuk komparasi aman
+  const cleanCurrent = currentPath.replace(/^\/+|\/+$/g, '');
+  const cleanMenu = menuUrl.replace(/^\/+|\/+$/g, '');
+  
+  if (cleanMenu === '' && cleanCurrent === '') return true;
+  if (cleanMenu === '') return false;
 
+  return cleanCurrent === cleanMenu || cleanCurrent.startsWith(cleanMenu + '/');
+};
+
+// --- KOMPONEN BERULANG (REKURSIF) UNTUK SETIAP ITEM MENU ---
+const NavMenuItem = ({ item, depth = 0, activePath, openDropdowns, handleParentClick, handleItemClick }) => {
+  const menuTitle = item.title || item.menu_name;
+  const menuUrl = item.url || item.menu_url;
+  const menuIconStr = item.icon || item.menu_icon;
+  const hasChildren = item.subs && item.subs.length > 0;
+
+  // Pengecekan aktif menggunakan fungsi normalisasi path di atas
+  const isDirectlyActive = checkActivePath(activePath, menuUrl);
+
+  // Cek rekursif apakah ada sub-menu di dalamnya yang sedang aktif
+  const isChildActive = (currentItem) => {
+    if (!currentItem.subs) return false;
+    return currentItem.subs.some(sub => {
+      const subUrl = sub.url || sub.menu_url;
+      return checkActivePath(activePath, subUrl) || isChildActive(sub);
+    });
+  };
+  
+  const isParentOfActive = hasChildren && isChildActive(item);
+
+  // Logika Block Aktif Penuh: Berlaku jika dirinya aktif ATAU anak di dalamnya aktif
+  const isBlockActive = isDirectlyActive || isParentOfActive;
+
+  const isOpen = !!openDropdowns[item.menu_id] || isParentOfActive;
+  const MenuIcon = Icons[menuIconStr] || (hasChildren ? Icons.Folder : Icons.File);
+
+  // Padding menjorok ke dalam disesuaikan tingkat kedalamannya agar rapi
+  const paddingLeft = `${(depth * 1.2) + 1}rem`; 
+
+  if (hasChildren) {
+    return (
+      <div className="w-full">
+        {/* Tombol Menu Utama yang Mempunyai Dropdown */}
+        <button 
+          onClick={() => handleParentClick(item.menu_id)}
+          style={{ paddingLeft }}
+          className={`w-full flex items-center justify-between py-3 px-4 rounded-xl cursor-pointer transition-all duration-200 select-none ${
+            isBlockActive
+              ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-blue-600/25 scale-[1.01]' 
+              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+          }`}
+        >
+          <div className="flex items-center gap-3 truncate">
+            <MenuIcon className={`w-5 h-5 flex-shrink-0 ${isBlockActive ? 'text-white' : 'text-slate-400'}`} />
+            <span className="text-sm truncate font-semibold tracking-wide">{menuTitle}</span>
+          </div>
+          <Icons.ChevronDown className={`w-4 h-4 transition-transform duration-300 ease-in-out flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
+        </button>
+
+        {/* Dropdown Container Sub-Menu */}
+        <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-[1000px] mt-1' : 'max-h-0'}`}>
+          <div className="space-y-1 py-0.5 border-l-2 border-slate-100 ml-5 pl-1">
+            {item.subs.map((subItem) => (
+              <NavMenuItem
+                key={subItem.menu_id}
+                item={subItem}
+                depth={depth + 0.5}
+                activePath={activePath}
+                openDropdowns={openDropdowns}
+                handleParentClick={handleParentClick}
+                handleItemClick={handleItemClick}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Render Untuk Single Menu / Sub-Menu Paling Ujung
   return (
     <div 
-        onClick={onClick}
-        className={`flex items-center gap-3 px-4 py-3 mx-2 rounded-lg cursor-pointer transition-all duration-200 ${
-            isActive 
-            ? 'bg-indigo-50 text-indigo-600 font-semibold shadow-sm' 
-            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-        } ${className}`}
+      onClick={() => handleItemClick(menuUrl)}
+      style={{ paddingLeft }}
+      className={`flex items-center gap-3 py-3 px-4 rounded-xl cursor-pointer transition-all duration-200 ${
+        isDirectlyActive
+          ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-blue-600/25 scale-[1.01]' 
+          : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+      }`}
     >
-        {TargetIcon ? (
-            <TargetIcon className="w-5 h-5" />
-        ) : (
-            <Icons.Folder className="w-5 h-5 opacity-40" />
-        )}
-        <span className="text-sm">{title}</span>
+      {/* Tampilkan icon pada depth utama, atau jika data sub-menu memiliki icon spesifik */}
+      {(depth === 0 || item.icon || item.menu_icon) && (
+        <MenuIcon className={`w-5 h-5 flex-shrink-0 ${isDirectlyActive ? 'text-white' : 'text-slate-400'}`} />
+      )}
+      <span className="text-sm truncate font-medium tracking-wide">{menuTitle}</span>
     </div>
   );
 };
 
+
+// --- KOMPONEN UTAMA SIDEBAR ---
 const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
   const navigate = useNavigate();
-  
-  const [menus, setMenus] = useState([]);
+  const location = useLocation();
+
+  const [menus, setMenus] = useState([]); 
   const [loading, setLoading] = useState(true);
-  
-  // --- STATE UNTUK MENCATAT YANG AKTIF SAAT DIKLIK ---
-  const [activeMenuId, setActiveMenuId] = useState(null); 
-  const [activeParentId, setActiveParentId] = useState(null); 
   const [openDropdowns, setOpenDropdowns] = useState({}); 
 
- 
-  // 1. Ambil data Menu langsung berdasarkan Role ID dari Database
   useEffect(() => {
-    // Kita tetap butuh role_id dari user yang login untuk tahu dia siapa
     const currentRoleId = localStorage.getItem('role_id'); 
-    
+
     if (!currentRoleId) {
-      console.error("Role ID tidak ditemukan di storage, pastikan sudah login.");
+      console.error("Role ID tidak ditemukan.");
       setLoading(false);
       return;
     }
 
-    // Panggil API baru yang langsung melakukan filter di MySQL server
     fetch(`${MENU_URL_ACCESS_BY_ROLE}/${currentRoleId}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Gagal mengambil data menu berizin");
-        return res.json();
-      })
+      .then((res) => res.json())
       .then((data) => {
-        const allowedMenus = Array.isArray(data) ? data : [];
-        
-        // Langsung pasang ke state tanpa perlu filter manual di frontend lagi!
-        setMenus(allowedMenus);
+        setMenus(Array.isArray(data) ? data : []);
         setLoading(false);
-
-        // Set menu aktif default dari menu pertama yang diizinkan
-        if (allowedMenus.length > 0) {
-            if (allowedMenus[0].subs && allowedMenus[0].subs.length > 0) {
-                setActiveMenuId(allowedMenus[0].subs[0].menu_id);
-                setActiveParentId(allowedMenus[0].menu_id);
-                setOpenDropdowns({ [allowedMenus[0].menu_id]: true });
-            } else {
-                setActiveMenuId(allowedMenus[0].menu_id);
-            }
-        }
       })
       .catch((err) => {
-        console.error("Gagal memuat menu sidebar:", err);
+        console.error("Gagal memuat menu:", err);
         setLoading(false);
       });
   }, []);
 
-  // 2. Fungsi ketika Parent Dropdown diklik
   const handleParentClick = (menuId) => {
     setOpenDropdowns(prev => ({
       ...prev,
@@ -87,113 +145,47 @@ const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
     }));
   };
 
-  // 3. Fungsi ketika Menu Biasa / Sub-Menu diklik (Navigasi & Set Aktif)
-  const handleItemClick = (menuId, parentId, path) => {
-    setActiveMenuId(menuId);     
-    setActiveParentId(parentId); 
-    
-    if (path) {
-        navigate(path);
-    }
-    
+  const handleItemClick = (path) => {
+    if (path) navigate(path);
     if (window.innerWidth < 768) setIsMobileOpen(false); 
   };
 
   if (loading) {
     return (
-      <aside className="w-64 bg-white border-r border-gray-100 flex items-center justify-center">
-        <span className="text-gray-400 text-sm animate-pulse">Loading Menu...</span>
+      <aside className="w-72 bg-white border-r border-slate-100 flex items-center justify-center shrink-0">
+        <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
       </aside>
     );
   }
 
   return (
     <>
-      {/* Overlay Mobile */}
-      {isMobileOpen && <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={() => setIsMobileOpen(false)}></div>}
+      {isMobileOpen && <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-20 md:hidden" onClick={() => setIsMobileOpen(false)}></div>}
 
-      <aside className={`fixed md:static inset-y-0 left-0 z-30 w-64 bg-white border-r border-gray-100 transform transition-transform duration-300 ease-in-out ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
-        
-        {/* Header Logo */}
-        <div className="h-16 flex items-center justify-center border-b border-gray-100">
-            <h1 className="text-2xl font-bold text-indigo-600">Admin<span className="text-gray-800">Panel</span></h1>
+      {/* MODIFIKASI: Lebar diubah menjadi w-72 agar tampak lebih kokoh dan menarik */}
+      <aside className={`fixed md:static inset-y-0 left-0 z-30 w-72 bg-white border-r border-slate-100 transform transition-transform duration-300 ease-in-out ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 shrink-0 flex flex-col shadow-sm`}>
+
+        {/* Logo Header Sidebar */}
+        <div className="h-16 flex items-center gap-3 px-6 border-b border-slate-100">
+            <div className="p-2 bg-indigo-600 rounded-xl text-white shadow-md shadow-blue-600/20">
+              <Icons.ShieldCheck className="w-5 h-5" />
+            </div>
+            <h1 className="text-xl font-black text-slate-800 tracking-tight">Admin<span className="font-light text-blue-600">Panel</span></h1>
         </div>
 
-        <nav className="mt-6 px-2 space-y-1 overflow-y-auto max-h-[calc(100vh-5rem)]">
-          
-          {menus.map((menu) => {
-            const menuTitle = menu.menu_name || menu.title;
-            const menuUrl = menu.menu_url || menu.url;
-            const menuIconStr = menu.menu_icon || menu.icon;
-
-            const hasChildren = menu.subs && menu.subs.length > 0;
-            
-            const isParentActive = activeMenuId === menu.menu_id || activeParentId === menu.menu_id;
-            const isOpen = !!openDropdowns[menu.menu_id];
-            
-            const ParentIcon = Icons[menuIconStr] || Icons.Folder;
-
-            // KONDISI A: DROPDOWN (HANYA MUNCUL JIKA SEBELUMNYA SUBS TIDAK KOSONG)
-            if (hasChildren) {
-              return (
-                <div key={menu.menu_id} className="pt-1 pb-1">
-                  <button 
-                      onClick={() => handleParentClick(menu.menu_id)}
-                      className={`w-full flex items-center justify-between px-4 py-3 mx-2 rounded-lg cursor-pointer transition-colors max-w-[calc(100%-16px)] ${
-                          isParentActive 
-                          ? 'text-indigo-600 bg-indigo-50/50 font-semibold' 
-                          : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                      }`}
-                  >
-                      <div className="flex items-center gap-3">
-                          <ParentIcon className="w-5 h-5" />
-                          <span className="text-sm">{menuTitle}</span>
-                      </div>
-                      <Icons.ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
-                  </button>
-
-                  {/* Wrapper Sub-Menu */}
-                  <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-96 opacity-100 mt-1' : 'max-h-0 opacity-0'}`}>
-                      <div className="space-y-1 relative">
-                          <div className={`absolute left-[34px] top-0 bottom-0 w-0.5 transition-colors ${isParentActive ? 'bg-indigo-200' : 'bg-gray-100'}`}></div>
-
-                          {menu.subs.map((child) => {
-                            const childTitle = child.menu_name || child.title;
-                            const childUrl = child.menu_url || child.url;
-                            const childIconStr = child.menu_icon || child.icon;
-                            
-                            const isChildActive = activeMenuId === child.menu_id;
-
-                            return (
-                              <SingleMenuItem 
-                                  key={child.menu_id}
-                                  title={childTitle} 
-                                  icon={childIconStr || null}
-                                  isActive={isChildActive}
-                                  onClick={() => handleItemClick(child.menu_id, menu.menu_id, childUrl)} 
-                                  className="pl-12 !mx-2 text-sm"
-                              />
-                            );
-                          })}
-                      </div>
-                  </div>
-                </div>
-              );
-            }
-
-            // KONDISI B: JIKA MENU TUNGGAL
-            const isSingleActive = activeMenuId === menu.menu_id;
-            return (
-              <SingleMenuItem 
-                 key={menu.menu_id}
-                 title={menuTitle} 
-                 icon={menuIconStr} 
-                 isActive={isSingleActive}
-                 onClick={() => handleItemClick(menu.menu_id, null, menuUrl)}
-              />
-            );
-          })}
-          
+        {/* MODIFIKASI: Navigasi List dengan Scrollbar Cantik & Halus */}
+        <nav className="flex-1 mt-4 px-4 space-y-1.5 overflow-y-auto max-h-[calc(100vh-4rem)] scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+          {menus.map((menu) => (
+            <NavMenuItem
+              key={menu.menu_id}
+              item={menu}
+              depth={0}
+              activePath={location.pathname}
+              openDropdowns={openDropdowns}
+              handleParentClick={handleParentClick}
+              handleItemClick={handleItemClick}
+            />
+          ))}
         </nav>
       </aside>
     </>

@@ -146,7 +146,8 @@ const UserManagement = () => {
 
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 sm:p-8">
+       <div className="bg-white rounded-2xl shadow-xl shadow-gray-200/50 border border-gray-100 p-6 sm:p-8 animate-fade-in-up">
+      
         
         {/* Toast Notification */}
         {notification.show && (
@@ -167,7 +168,7 @@ const UserManagement = () => {
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-indigo-500/30 flex items-center gap-2"
             >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/>
                 </svg>
                 Add User
             </button> 
