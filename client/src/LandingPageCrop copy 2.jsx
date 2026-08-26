@@ -10,7 +10,7 @@ const LandingPageCrop = () => {
   const [currentSlide, setCurrentSlide] = useState(2);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
-  const [currentNews, setCurrentNews] = useState(0);
+  const [currentarticle, setCurrentarticle] = useState(0);
   const [currentStory, setCurrentStory] = useState(0);
 
   // --- ANIMATION VARIANTS ---
@@ -60,7 +60,7 @@ const LandingPageCrop = () => {
     { title: "Quality Assurance", icon: <ShieldCheck size={28} /> }
   ];
 
-  const news = [
+  const article = [
     { id: 1, date: "24 DEC 2025", cat: "TECH", title: "Implementasi AI dalam Sistem GRC Modern", img: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=800" },
     { id: 2, date: "18 DEC 2025", cat: "BUSINESS", title: "CROP Memperluas Layanan ke Asia Tenggara", img: "https://images.unsplash.com/photo-1526628953301-3e589a6a8b74?auto=format&fit=crop&w=800" },
     { id: 3, date: "10 DEC 2025", cat: "UPDATE", title: "Optimasi UI/UX Aplikasi Mobile Perbankan", img: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800" },
@@ -75,7 +75,7 @@ const LandingPageCrop = () => {
   const handlePrev = () => setCurrentSlide((prev) => (prev > 0 ? prev - 1 : projects.length - 1));
 
   useEffect(() => {
-    const timer = setInterval(() => setCurrentNews((prev) => (prev + 1) % news.length), 5000);
+    const timer = setInterval(() => setCurrentarticle((prev) => (prev + 1) % article.length), 5000);
     return () => clearInterval(timer);
   }, []);
 
@@ -256,14 +256,14 @@ const LandingPageCrop = () => {
         </div>
       </motion.section>
 
-      {/* --- 6. NEWS SECTION (PROGRESS GRADIENT) --- */}
+      {/* --- 6. article SECTION (PROGRESS GRADIENT) --- */}
       <section className="bg-black py-24 overflow-hidden border-t border-white/5">
         <div className="max-w-[1600px] mx-auto px-6 md:px-10">
           <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tighter mb-16">Latest <span className="text-transparent" style={{ WebkitTextStroke: '1px white' }}>Stories</span></h2>
           
           <div className="relative">
-            <div className="flex transition-transform duration-1000 ease-in-out gap-6" style={{ transform: `translateX(-${currentNews * (100 / (window.innerWidth < 768 ? 1 : 3))}%)` }}>
-              {news.map((item) => (
+            <div className="flex transition-transform duration-1000 ease-in-out gap-6" style={{ transform: `translateX(-${currentarticle * (100 / (window.innerWidth < 768 ? 1 : 3))}%)` }}>
+              {article.map((item) => (
                 <div key={item.id} className="min-w-full md:min-w-[calc(33.333%-16px)] group cursor-pointer">
                   <div className="relative h-[300px] overflow-hidden rounded-sm mb-6">
                     <img src={item.img} className="w-full h-full object-cover grayscale group-hover:grayscale-0 group-hover:scale-110 transition-all duration-700" />
@@ -276,7 +276,7 @@ const LandingPageCrop = () => {
           </div>
 
           <div className="w-full h-[2px] bg-white/10 mt-20 relative">
-            <div className="absolute top-0 left-0 h-full bg-gradient-to-r from-orange-600 to-orange-400 transition-all duration-1000" style={{ width: `${((currentNews + 1) / news.length) * 100}%` }}></div>
+            <div className="absolute top-0 left-0 h-full bg-gradient-to-r from-orange-600 to-orange-400 transition-all duration-1000" style={{ width: `${((currentarticle + 1) / article.length) * 100}%` }}></div>
           </div>
         </div>
       </section>

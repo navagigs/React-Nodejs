@@ -26,13 +26,13 @@ const MenuManagement = () => {
     description: '',
     menu_order: 1,
     type: '2',
-    is_view: '0',
-    is_create: '0',
-    is_edit: '0',
-    is_delete: '0',
-    is_export: '0',
-    is_duplicate: '0',
-    is_unlock: '0',
+    is_view: 1,
+    is_create: 1,
+    is_edit: 1,
+    is_delete: 1,
+    is_export: 1,
+    is_duplicate: 1,
+    is_unlock: 1,
     is_active: 1,
     class_active: '',
     icon: ''
@@ -174,9 +174,15 @@ const MenuManagement = () => {
 };
 
   const handleCheckboxChange = (e) => {
-    const { name, checked } = e.target;
-    setCurrentMenu({ ...currentMenu, [name]: checked ? '1' : '0' });
-  };
+  const { name, checked } = e.target;
+  // Memastikan nilai yang disimpan ke state selalu angka 1 atau 0
+  const value = checked ? 1 : 0;
+  
+  setCurrentMenu((prev) => ({
+    ...prev,
+    [name]: value
+  }));
+};
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -273,18 +279,30 @@ const MenuManagement = () => {
 };
 
   const handleEdit = (item) => {
-    setIsEditing(true);
-    setCurrentMenu({
-      ...item,
-      parent_id: item.parent_id?.toString() === item.menu_id?.toString() || item.parent_id === 1 || item.parent_id === '1' ? '' : (item.parent_id || ''),
-      url: item.url || '',
-      description: item.description || '',
-      icon: item.icon || ''
-    });
-    setIsDropdownOpen(false);
-    setSearchDropdownQuery('');
-    setIsModalOpen(true);
-  };
+  setIsEditing(true);
+  
+  // Helper kecil untuk normalisasi integer 1 atau 0
+  const parseFlag = (val) => (val === 1 || val === '1' || val === true ? 1 : 0);
+
+  setCurrentMenu({
+    ...item,
+    parent_id: item.parent_id?.toString() === item.menu_id?.toString() || item.parent_id === 0 || item.parent_id === '0' ? '' : (item.parent_id || ''),
+    url: item.url || '',
+    description: item.description || '',
+    icon: item.icon || '',
+    is_view: parseFlag(item.is_view),
+    is_create: parseFlag(item.is_create),
+    is_edit: parseFlag(item.is_edit),
+    is_delete: parseFlag(item.is_delete),
+    is_export: parseFlag(item.is_export),
+    is_duplicate: parseFlag(item.is_duplicate),
+    is_unlock: parseFlag(item.is_unlock),
+    is_active: parseFlag(item.is_active ?? 1)
+  });
+  setIsDropdownOpen(false);
+  setSearchDropdownQuery('');
+  setIsModalOpen(true);
+};
 
   const closeModal = () => {
     setIsModalOpen(false);
@@ -397,7 +415,7 @@ const MenuManagement = () => {
               className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition flex items-center gap-2 shadow-lg shadow-indigo-500/20"
           >
               <Icons.Plus className="w-4 h-4" />
-              Add Menu Utama
+              Tambah
           </button>
         </div>
 
@@ -585,39 +603,54 @@ const MenuManagement = () => {
                   <input type="text" name="description" value={currentMenu.description} onChange={handleInputChange} className={inputStyle} placeholder="Otomatis terisi gabungan..." />
                 </div>
 
-                {/* OTORITAS AKSES */}
-                <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-                  <span className="block text-xs font-bold text-gray-700 mb-3 uppercase tracking-wider">Otoritas Akses</span>
-                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 text-center">
-                    {[
-                      { key: 'is_view', label: 'View' },
-                      { key: 'is_create', label: 'Create' },
-                      { key: 'is_edit', label: 'Edit' },
-                      { key: 'is_delete', label: 'Delete' },
-                      { key: 'is_export', label: 'Export' },
-                      { key: 'is_duplicate', label: 'Duplicate' },
-                      { key: 'is_unlock', label: 'Unlock' }
-                    ].map((priv) => (
-                      <div key={priv.key} className="flex flex-col items-center gap-1.5 bg-white p-2 border border-gray-200 rounded-lg shadow-xs">
-                        <span className="text-[11px] font-semibold text-gray-500">{priv.label}</span>
-                        <input 
-                          type="checkbox" 
-                          name={priv.key} 
-                          checked={currentMenu[priv.key] === '1'} 
-                          onChange={handleCheckboxChange} 
-                          className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 mt-0.5 cursor-pointer" 
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                {/* OTORITAS AKSES */} 
+<div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+  <span className="block text-xs font-bold text-gray-700 mb-3 uppercase tracking-wider">
+    Otoritas Akses
+  </span>
+  <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 text-center">
+    {[
+      { key: 'is_view', label: 'View' },
+      { key: 'is_create', label: 'Create' },
+      { key: 'is_edit', label: 'Edit' },
+      { key: 'is_delete', label: 'Delete' },
+      { key: 'is_export', label: 'Export' },
+      { key: 'is_duplicate', label: 'Duplicate' },
+      { key: 'is_unlock', label: 'Unlock' }
+    ].map((priv) => {
+      // Evaluasi nilai boolean secara fleksibel (mendukung integer 1, string "1", atau boolean true)
+      const isChecked = 
+        currentMenu[priv.key] === 1 || 
+        currentMenu[priv.key] === 1 || 
+        currentMenu[priv.key] === true;
+
+      return (
+        <label 
+          key={priv.key} 
+          className="flex flex-col items-center gap-1.5 bg-white p-2 border border-gray-200 rounded-lg shadow-xs cursor-pointer hover:bg-slate-50 transition"
+        >
+          <span className="text-[11px] font-semibold text-gray-500 select-none">
+            {priv.label}
+          </span>
+          <input 
+            type="checkbox" 
+            name={priv.key} 
+            checked={isChecked} 
+            onChange={handleCheckboxChange} 
+            className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 mt-0.5 cursor-pointer" 
+          />
+        </label>
+      );
+    })}
+  </div>
+</div>
 
                 <div className="flex gap-3 pt-4 border-t border-gray-100">
                   <button type="button" onClick={closeModal} className="px-5 py-2 rounded-xl border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50 transition flex-1">
                     Batal
                   </button>
                   <button type="submit" className="px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition flex-1 shadow-md">
-                    Simpan Data
+                    Simpan
                   </button>
                 </div>
               </form>

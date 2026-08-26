@@ -56,12 +56,12 @@ const NavMenuItem = ({ item, depth = 0, activePath, openDropdowns, handleParentC
           style={{ paddingLeft }}
           className={`w-full flex items-center justify-between py-3 px-4 rounded-xl cursor-pointer transition-all duration-200 select-none ${
             isBlockActive
-              ? 'bg-indigo-600 text-white font-semibold shadow-lg shadow-blue-600/25 scale-[1.01]' 
+              ? ' text-indigo' 
               : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
           }`}
         >
           <div className="flex items-center gap-3 truncate">
-            <MenuIcon className={`w-5 h-5 flex-shrink-0 ${isBlockActive ? 'text-white' : 'text-slate-400'}`} />
+            <MenuIcon className={`w-5 h-5 flex-shrink-0 ${isBlockActive ? 'text-indigo' : 'text-slate-400'}`} />
             <span className="text-sm truncate font-semibold tracking-wide">{menuTitle}</span>
           </div>
           <Icons.ChevronDown className={`w-4 h-4 transition-transform duration-300 ease-in-out flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />

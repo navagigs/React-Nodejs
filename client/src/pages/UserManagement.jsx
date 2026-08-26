@@ -170,7 +170,7 @@ const UserManagement = () => {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/>
                 </svg>
-                Add User
+                Tambah
             </button> 
 
         </div>
@@ -267,8 +267,8 @@ const UserManagement = () => {
               </div>
 
               <div className="flex gap-4 pt-4 border-t border-gray-100 mt-6">
-                <button type="button" onClick={closeModal} className="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 font-medium hover:bg-gray-50 flex-1">Cancel</button>
-                <button type="submit" className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 shadow-lg flex-1">Save</button>
+                <button type="button" onClick={closeModal} className="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 font-medium hover:bg-gray-50 flex-1">Batal</button>
+                <button type="submit" className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 shadow-lg flex-1">Simpan</button>
               </div>
             </form>
           </div>

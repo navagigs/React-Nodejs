@@ -121,7 +121,7 @@ const ProjectDocument = ({ projectId }) => {
             debug: false,
             msg: "Edit kode HTML",
             okText: "Simpan",
-            cancelText: "Batal",
+            BatalText: "Batal",
             buttonHTML: "&lt;&gt;", // Menampilkan tombol <> di toolbar
         },
         clipboard: {
@@ -597,7 +597,7 @@ const generateBastTemplate = (project) => {
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/>
                             </svg>
-                            Buat Dokumen Baru
+                            Tambah
                         </button>
                     </div>
 

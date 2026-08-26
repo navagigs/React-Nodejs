@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
-import { BASE_IMAGE_URL, NEWS_URL, CATEGORY_URL } from '../Api';
+import { BASE_IMAGE_URL, ARTICLE_URL, CATEGORY_URL } from '../Api';
 
-const News = () => {
-  const [news, setNews] = useState([]);
+const Articles = () => {
+  const [articles, setArticles] = useState([]);
   const [categories, setCategories] = useState([]); 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -12,17 +12,19 @@ const News = () => {
   // --- STATE FILTER & SEARCH ---
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
 
   // --- STATE PAGINATION ---
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 5; // Jumlah data per halaman
+  const itemsPerPage = 5;
 
   // State Form
-  const [currentNews, setCurrentNews] = useState({ 
+  const [currentArticle, setCurrentArticle] = useState({ 
       id: null, 
       title: '', 
       content: '', 
       category_id: '',
+      status: 'published',
       image: null 
   });
   
@@ -60,14 +62,14 @@ const News = () => {
   // --- FETCH DATA ---
   const fetchData = async () => {
     try {
-        const newsRes = await fetch(NEWS_URL);
-        const newsData = await newsRes.json();
+        const articleRes = await fetch(ARTICLE_URL);
+        const articleData = await articleRes.json();
         
         const catRes = await fetch(CATEGORY_URL);
         const catData = await catRes.json();
 
         setCategories(catData);
-        setNews(newsData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
+        setArticles(articleData.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
 
     } catch (error) {
         console.error("Gagal mengambil data:", error);
@@ -80,23 +82,24 @@ const News = () => {
   }, []);
 
   // --- FILTER LOGIC ---
-  const filteredNews = news.filter((item) => {
+  const filteredArticles = articles.filter((item) => {
       const term = searchTerm.toLowerCase();
       const matchTitle = item.title.toLowerCase().includes(term);
       const matchCategory = filterCategory === '' || String(item.category_id) === String(filterCategory);
-      return matchTitle && matchCategory;
+      const matchStatus = filterStatus === '' || item.status === filterStatus;
+      return matchTitle && matchCategory && matchStatus;
   });
 
   // Reset ke halaman 1 jika filter berubah
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filterCategory]);
+  }, [searchTerm, filterCategory, filterStatus]);
 
   // --- PAGINATION LOGIC ---
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = filteredNews.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(filteredNews.length / itemsPerPage);
+  const currentItems = filteredArticles.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredArticles.length / itemsPerPage);
 
   // --- FORM HANDLERS ---
   const handleFileChange = (e) => {
@@ -106,37 +109,36 @@ const News = () => {
   };
 
   const handleContentChange = (value) => {
-      setCurrentNews(prev => ({ ...prev, content: value }));
+      setCurrentArticle(prev => ({ ...prev, content: value }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!currentNews.title.trim() || !currentNews.category_id || currentNews.content.replace(/<(.|\n)*?>/g, '').trim().length === 0) {
+    if (!currentArticle.title.trim() || !currentArticle.category_id || currentArticle.content.replace(/<(.|\n)*?>/g, '').trim().length === 0) {
         showNotification("Judul, Kategori, dan Konten wajib diisi!", "error");
         return;
     }
     
     const formData = new FormData();
-    formData.append('title', currentNews.title);
-    formData.append('content', currentNews.content);
-    formData.append('category_id', currentNews.category_id);
+    formData.append('title', currentArticle.title);
+    formData.append('content', currentArticle.content);
+    formData.append('category_id', currentArticle.category_id);
+    formData.append('status', currentArticle.status || 'published');
     
     if (selectedImageFile) {
         formData.append('image', selectedImageFile);
     }
 
     try {
-        let url = NEWS_URL;
-        let method = 'POST'; // Gunakan POST untuk Edit (Spoofing) agar mendukung FormData
-        let successMsg = "Berita berhasil diterbitkan!";
+        let url = ARTICLE_URL;
+        let method = 'POST'; 
+        let successMsg = "Artikel berhasil diterbitkan!";
 
         if (isEditing) {
-            url = `${NEWS_URL}/${currentNews.id}`;
-            // Menambahkan spoofing _method agar backend mengenali ini sebagai PUT 
-            // Meskipun dikirim lewat POST (Solusi agar edit file jalan)
+            url = `${ARTICLE_URL}/${currentArticle.id}`;
             formData.append('_method', 'PUT'); 
-            successMsg = "Berita berhasil diperbarui!";
+            successMsg = "Artikel berhasil diperbarui!";
         }
 
         const response = await fetch(url, {
@@ -156,14 +158,40 @@ const News = () => {
     }
   };
 
+  // --- TOGGLE PUBLISH / UNPUBLISH ---
+  const handleToggleStatus = async (item) => {
+    const newStatus = item.status === 'published' ? 'draft' : 'published';
+    const formData = new FormData();
+    formData.append('title', item.title);
+    formData.append('content', item.content);
+    formData.append('category_id', item.category_id);
+    formData.append('status', newStatus);
+    formData.append('_method', 'PUT');
+
+    try {
+        const response = await fetch(`${ARTICLE_URL}/${item.id}`, {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) throw new Error("Gagal mengupdate status");
+
+        fetchData();
+        showNotification(`Status artikel diubah menjadi ${newStatus === 'published' ? 'Published' : 'Draft'}`);
+    } catch (error) {
+        console.error("Error updating status:", error);
+        showNotification("Gagal memperbarui status", "error");
+    }
+  };
+
   const handleDelete = async (id) => {
-    if (window.confirm("Yakin ingin menghapus berita ini?")) {
+    if (window.confirm("Yakin ingin menghapus artikel ini?")) {
         try {
-            const response = await fetch(`${NEWS_URL}/${id}`, { method: 'DELETE' });
+            const response = await fetch(`${ARTICLE_URL}/${id}`, { method: 'DELETE' });
             if (!response.ok) throw new Error("Gagal menghapus");
 
             fetchData();
-            showNotification("Berita berhasil dihapus!", "success");
+            showNotification("Artikel berhasil dihapus!", "success");
         } catch (error) {
             console.error("Error deleting:", error);
             showNotification("Gagal menghapus data.", "error");
@@ -174,16 +202,17 @@ const News = () => {
   // --- MODAL CONTROL ---
   const handleAddNew = () => {
     setIsEditing(false);
-    setCurrentNews({ title: '', content: '', category_id: '', image: null });
+    setCurrentArticle({ title: '', content: '', category_id: '', status: 'published', image: null });
     setSelectedImageFile(null); 
     setIsModalOpen(true);
   };
 
   const handleEdit = (item) => {
     setIsEditing(true);
-    setCurrentNews({
+    setCurrentArticle({
         ...item,
-        category_id: String(item.category_id) // Pastikan ID kategori menjadi string untuk select
+        category_id: String(item.category_id),
+        status: item.status || 'published'
     });
     setSelectedImageFile(null); 
     setIsModalOpen(true);
@@ -230,8 +259,8 @@ const News = () => {
         {/* --- HEADER --- */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 border-b border-gray-100 pb-6">
             <div>
-                <h2 className="text-2xl font-bold text-gray-900 tracking-tight">News List</h2>
-                <p className="text-sm text-gray-500 mt-1">Manage articles. Showing {indexOfFirstItem + 1} to {Math.min(indexOfLastItem, filteredNews.length)} of {filteredNews.length}</p>
+                <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Articles List</h2>
+                <p className="text-sm text-gray-500 mt-1">Manage articles. Showing {indexOfFirstItem + 1} to {Math.min(indexOfLastItem, filteredArticles.length)} of {filteredArticles.length}</p>
             </div>
             
             <button 
@@ -239,7 +268,7 @@ const News = () => {
                 className="group bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center gap-2 shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50 hover:-translate-y-0.5"
             >
                 <svg className="w-5 h-5 transition-transform group-hover:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
-                Write News
+                Write Article
             </button>
         </div>
 
@@ -249,7 +278,7 @@ const News = () => {
                 <div className="relative w-full md:flex-1">
                     <input 
                         type="text" 
-                        placeholder="Search news title..." 
+                        placeholder="Search article title..." 
                         className="pl-10 pr-4 py-2.5 w-full bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition shadow-sm placeholder-gray-400"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
@@ -257,9 +286,22 @@ const News = () => {
                     <svg className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                 </div>
 
+                {/* Filter Status */}
+                <div className="w-full md:w-48">
+                    <select
+                        className="w-full py-2.5 px-3 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition cursor-pointer"
+                        value={filterStatus}
+                        onChange={(e) => setFilterStatus(e.target.value)}
+                    >
+                        <option value="">All Status</option>
+                        <option value="published">Published</option>
+                        <option value="draft">Draft (Unpublished)</option>
+                    </select>
+                </div>
+
+                {/* Category Dropdown */}
                 <div className="w-full md:w-64 relative"> 
                 <div className="relative">
-                    {/* Input yang berfungsi sebagai pemicu dropdown & pencarian */}
                     <input
                         type="text"
                         className="pl-10 pr-10 py-2.5 w-full bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition cursor-pointer"
@@ -272,12 +314,10 @@ const News = () => {
                         }}
                     />
                     
-                    {/* Icon Search */}
                     <svg className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                     </svg>
 
-                    {/* Tombol Clear (jika ada kategori terpilih) */}
                     {filterCategory && (
                         <button 
                             onClick={() => { setFilterCategory(''); setCatSearchQuery(''); }}
@@ -287,7 +327,6 @@ const News = () => {
                         </button>
                     )}
 
-                    {/* Dropdown Menu */}
                     {isCatDropdownOpen && (
                         <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-60 overflow-y-auto animate-in fade-in slide-in-from-top-2 duration-200">
                             <div 
@@ -322,7 +361,6 @@ const News = () => {
                     )}
                 </div>
                 
-                {/* Overlay untuk menutup dropdown saat klik di luar */}
                 {isCatDropdownOpen && (
                     <div className="fixed inset-0 z-40" onClick={() => setIsCatDropdownOpen(false)}></div>
                 )}
@@ -339,8 +377,9 @@ const News = () => {
                         <th className="py-4 pl-6 w-24">Image</th> 
                         <th className="py-4 px-4">Title</th>
                         <th className="py-4 px-4">Category</th>
+                        <th className="py-4 px-4">Status</th>
                         <th className="py-4 px-4">Date</th>
-                        <th className="py-4 pr-6 text-right w-32">Actions</th>
+                        <th className="py-4 pr-6 text-right w-36">Actions</th>
                     </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-50">
@@ -359,17 +398,40 @@ const News = () => {
                         </td>
                         <td className="py-4 px-4">
                             <span className="font-semibold text-gray-800 line-clamp-1">{item.title}</span>
-                          
                         </td>
                         <td className="py-4 px-4">
                             <span className="px-2 py-1 rounded-md text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
                                 {item.category_name || 'Uncategorized'}
                             </span>
                         </td>
+                        <td className="py-4 px-4">
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                item.status === 'published' 
+                                    ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' 
+                                    : 'bg-amber-100 text-amber-700 border border-amber-200'
+                            }`}>
+                                {item.status === 'published' ? 'Published' : 'Draft'}
+                            </span>
+                        </td>
                         <td className="py-4 px-4 text-sm text-gray-500">
                             {formatDate(item.created_at)}
                         </td>
-                        <td className="py-4 pr-6 text-right space-x-2">
+                        <td className="py-4 pr-6 text-right space-x-1">
+                            <button 
+                                onClick={() => handleToggleStatus(item)} 
+                                className={`p-2 rounded-lg transition-all ${
+                                    item.status === 'published' 
+                                        ? 'text-emerald-600 hover:bg-emerald-50' 
+                                        : 'text-amber-600 hover:bg-amber-50'
+                                }`}
+                                title={item.status === 'published' ? 'Unpublish Article' : 'Publish Article'}
+                            >
+                                {item.status === 'published' ? (
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                ) : (
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858-5.908a8.959 8.959 0 013.682-.793c4.478 0 8.268 2.943 9.542 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21M3 3l18 18"/></svg>
+                                )}
+                            </button>
                             <button onClick={() => handleEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" title="Edit">
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                             </button>
@@ -380,10 +442,10 @@ const News = () => {
                     </tr>
                     ))}
                     
-                    {filteredNews.length === 0 && (
+                    {filteredArticles.length === 0 && (
                         <tr>
-                            <td colSpan="5" className="py-12 text-center text-gray-400">
-                                {filterCategory ? "No news found in this category" : "No news found"}
+                            <td colSpan="6" className="py-12 text-center text-gray-400">
+                                {filterCategory || filterStatus ? "No articles found with active filters" : "No articles found"}
                             </td>
                         </tr>
                     )}
@@ -392,7 +454,7 @@ const News = () => {
             </div>
 
             {/* --- PAGINATION CONTROLS --- */}
-            {filteredNews.length > itemsPerPage && (
+            {filteredArticles.length > itemsPerPage && (
                 <div className="px-6 py-4 bg-gray-50/50 border-t border-gray-100 flex items-center justify-between">
                     <p className="text-sm text-gray-500">
                         Page <span className="font-semibold">{currentPage}</span> of <span className="font-semibold">{totalPages}</span>
@@ -435,7 +497,7 @@ const News = () => {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-0 relative animate-scale-up">
             
             <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 sticky top-0 z-10 backdrop-blur-md">
-                <h3 className="text-xl font-bold text-gray-800">{isEditing ? 'Edit News' : 'Write News'}</h3>
+                <h3 className="text-xl font-bold text-gray-800">{isEditing ? 'Edit Article' : 'Write Article'}</h3>
                 <button onClick={closeModal} className="text-gray-400 hover:text-gray-600 transition">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
@@ -448,24 +510,39 @@ const News = () => {
                     <input 
                         type="text" required 
                         className={inputStyle} 
-                        value={currentNews.title} 
-                        onChange={(e) => setCurrentNews({...currentNews, title: e.target.value})} 
+                        value={currentArticle.title} 
+                        onChange={(e) => setCurrentArticle({...currentArticle, title: e.target.value})} 
                     />
-                  </div>
+              </div>
 
-              <div>
-               <label className={labelStyle}>Category *</label>
-                    <select 
-                        required 
-                        className={inputStyle}
-                        value={currentNews.category_id}
-                        onChange={(e) => setCurrentNews({...currentNews, category_id: e.target.value})}
-                    >
-                        <option value="">-- Select Category --</option>
-                        {categories.map((cat) => (
-                            <option key={cat.id} value={cat.id}>{cat.name}</option>
-                        ))}
-                    </select>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                   <label className={labelStyle}>Category *</label>
+                        <select 
+                            required 
+                            className={inputStyle}
+                            value={currentArticle.category_id}
+                            onChange={(e) => setCurrentArticle({...currentArticle, category_id: e.target.value})}
+                        >
+                            <option value="">-- Select Category --</option>
+                            {categories.map((cat) => (
+                                <option key={cat.id} value={cat.id}>{cat.name}</option>
+                            ))}
+                        </select>
+                </div>
+
+                <div>
+                   <label className={labelStyle}>Status *</label>
+                        <select 
+                            required 
+                            className={inputStyle}
+                            value={currentArticle.status || 'published'}
+                            onChange={(e) => setCurrentArticle({...currentArticle, status: e.target.value})}
+                        >
+                            <option value="published">Publish Direct</option>
+                            <option value="draft">Save as Draft (Unpublish)</option>
+                        </select>
+                </div>
               </div>
               
               <div className="pb-8"> 
@@ -473,22 +550,22 @@ const News = () => {
                   <div className="bg-white">
                     <ReactQuill 
                         theme="snow"
-                        value={currentNews.content}
+                        value={currentArticle.content}
                         onChange={handleContentChange}
                         modules={modules}
                         formats={formats}
                         className="h-64 mb-4" 
-                        placeholder="Write your amazing news content here..."
+                        placeholder="Write your article content here..."
                     />
                   </div>
               </div>
 
-                 <div className="flex flex-col mb-6">
+              <div className="flex flex-col mb-6">
                 <label className={labelStyle}>Cover Image</label>
                 <div className="relative group cursor-pointer mt-2 w-full h-48 rounded-xl overflow-hidden border-2 border-dashed border-gray-300 bg-gray-50 hover:bg-gray-100 transition-colors">
-                    {selectedImageFile || (isEditing && currentNews.image) ? (
+                    {selectedImageFile || (isEditing && currentArticle.image) ? (
                          <img 
-                            src={selectedImageFile ? URL.createObjectURL(selectedImageFile) : BASE_IMAGE_URL + currentNews.image} 
+                            src={selectedImageFile ? URL.createObjectURL(selectedImageFile) : BASE_IMAGE_URL + currentArticle.image} 
                             alt="Preview" 
                             className="w-full h-full object-cover"
                         />
@@ -505,10 +582,10 @@ const News = () => {
 
               <div className="flex gap-4 pt-4 border-t border-gray-100 mt-8">
                 <button type="button" onClick={closeModal} className="px-6 py-2.5 rounded-xl border border-gray-300 text-gray-700 font-medium hover:bg-gray-50 transition flex-1">
-                  Cancel
+                  Batal
                 </button>
                 <button type="submit" className="px-6 py-2.5 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 hover:shadow-lg hover:shadow-indigo-500/30 transition flex-1">
-                  {isEditing ? 'Save Changes' : 'Publish News'}
+                  {isEditing ? 'Simpan' : 'Save Article'}
                 </button>
               </div>
             </form>
@@ -520,4 +597,4 @@ const News = () => {
   );
 };
 
-export default News;
+export default Articles;

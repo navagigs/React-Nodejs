@@ -155,7 +155,7 @@ const ProjectDocument = ({ projectId }) => {
             debug: false,
             msg: "Edit kode HTML",
             okText: "Simpan",
-            cancelText: "Batal",
+            BatalText: "Batal",
             buttonHTML: "&lt;&gt;", // Menampilkan tombol <> di toolbar
         },
         clipboard: {
@@ -705,7 +705,7 @@ const handleCopyData = async (item) => {
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/>
                                 </svg>
-                                Buat Dokumen Baru
+                                Tambah
                             </button>
                         )}
                     </div>
@@ -913,11 +913,7 @@ const handleCopyData = async (item) => {
                     <div className="flex justify-between items-center pb-6 border-b border-gray-100 mb-6">
                         <h3 className="text-lg sm:text-xl font-bold text-gray-900 tracking-tight">
                             {formData.id ? '✏️ Perbarui Dokumen Administrasi Proyek' : '➕ Buat Dokumen Administrasi Baru'}
-                        </h3>
-                        <button onClick={resetForm} className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-semibold transition">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
-                            Kembali ke Daftar
-                        </button>
+                        </h3> 
                     </div>
                     <form onSubmit={handleSaveDocument} className="space-y-6">
                         
@@ -1195,9 +1191,9 @@ const handleCopyData = async (item) => {
 
                         {/* Form Actions */}
                         <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
-                            <button type="button" onClick={() => { resetForm(); }} className="px-5 py-2.5 bg-gray-100 text-gray-600 rounded-xl text-xs font-bold hover:bg-gray-200 transition">Batal</button>
-                            <button type="submit" disabled={isSaving} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition shadow-lg shadow-indigo-500/20 disabled:opacity-50">
-                                {isSaving ? '⏳ Menyimpan...' : '⚡ Simpan Berkas Dokumen'}
+                            <button type="button" onClick={() => { resetForm(); }} className="px-5 py-2.5 text-gray-600 bg-gray-100 rounded-xl">Batal</button>
+                            <button type="submit" disabled={isSaving} className="px-8 py-2.5 rounded-xl bg-indigo-600 text-white font-medium hover:bg-indigo-700 shadow-lg shadow-indigo-500/20 transition">
+                                {isSaving ? '⏳ Menyimpan...' : 'Simpan'}
                             </button>
                         </div>
                     </form>

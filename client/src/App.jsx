@@ -7,13 +7,13 @@ import Portfolio from './pages/Portfolio'; // Ini ISI Portfolio
 import Letter from './pages/Letter'; 
  import ProjectDocument from './pages/ProjectDocument'; //  
 import Clients from './pages/Clients'; 
-import Category from './pages/Category'; 
-import News from './pages/News'; 
+import Category from './pages/Category';  
 import MenuManagement from './pages/MenuManagement'; 
 import RoleManagement from './pages/RoleManagement'; 
 import UserManagement from './pages/UserManagement'; 
 import ModuleAuthority from './pages/ModuleAuthority'; 
 import LandingPageCrop from './LandingPageCrop';  
+import Articles from './pages/Article'; // Import halaman Articles
 
 function App() {
   return (
@@ -49,8 +49,8 @@ function App() {
             {/* Jika URL /category -> Tampilkan Tabel category */}
             <Route path="/category" element={<Category />} />
 
-            {/* Jika URL /news -> Tampilkan Tabel news */}
-            <Route path="/news" element={<News />} />
+            {/* Jika URL /article -> Tampilkan Tabel article */}
+            <Route path="/articles" element={<Articles />} />
 
 
             <Route path="/hak-akses/menu" element={<MenuManagement />} />

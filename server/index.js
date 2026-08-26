@@ -87,12 +87,12 @@ app.post('/api/login', (req, res) => {
 
             // =========================================================================
             // FIX: Tarik data Hak Akses (Permissions) dari tabel module_authority
-            // Kita hanya mengambil menu yang status 'is_view'-nya aktif ('1')
+            // Kita hanya mengambil menu yang status 'is_view'-nya aktif (1)
             // =========================================================================
             const sqlAuth = `
                 SELECT menu_id,  is_view, is_create, is_edit, is_delete, is_export, is_duplicate, is_unlock 
                 FROM module_authority 
-                WHERE role_id = ? AND is_view = '1'
+                WHERE role_id = ? AND is_view = 1
             `;
 
             db.query(sqlAuth, [user.role_id], (errAuth, permissions) => {
@@ -114,7 +114,7 @@ app.post('/api/login', (req, res) => {
                     message: "Login berhasil!",
                     token, 
                     role_id: user.role_id, // Dikirim terpisah agar mudah dibaca frontend
-                    permissions,           // Berisi array list hak akses yang bernilai string '1'
+                    permissions,           // Berisi array list hak akses yang bernilai string 1
                     user: { 
                         id: user.id,
                         name: user.name, 
@@ -138,11 +138,11 @@ app.post('/api/login', (req, res) => {
         return res.status(400).json({ message: "Role ID tidak ditemukan" });
     }
 
-    // Kueri SQL: Hanya mengambil menu yang memiliki izin 'is_view' = '1' untuk role_id ini
+    // Kueri SQL: Hanya mengambil menu yang memiliki izin 'is_view' = 1 untuk role_id ini
     const sql = `
         SELECT m.* FROM menu m
         INNER JOIN module_authority ma ON m.menu_id = ma.menu_id
-        WHERE ma.role_id = ? AND ma.is_view = '1' AND m.is_active = '1'
+        WHERE ma.role_id = ? AND ma.is_view = 1 AND m.is_active = 1
         ORDER BY m.menu_order ASC
     `;
     
@@ -164,8 +164,8 @@ app.post('/api/login', (req, res) => {
             const pId = item.parent_id;
 
             // Kriteria Penentu MENU UTAMA (ROOT LEVEL):
-            // Dianggap menu utama jika parent_id kosong, bernilai 0, bernilai '0', bernilai 1, atau bernilai '1'
-            const isRoot = !pId || pId === 0 || pId === '0' || pId === 1 || pId === '1';
+            // Dianggap menu utama jika parent_id kosong, bernilai 0, bernilai 0, bernilai 1, atau bernilai 1
+            const isRoot = !pId || pId === 0 || pId === '0' || pId === 1 || pId === 1;
 
             if (isRoot) {
                 // Masuk sebagai Menu Level Utama (Terluar) di Sidebar
@@ -467,91 +467,112 @@ app.delete('/api/categories/:id', (req, res) => {
 });
 
 // ==========================================
-// API BERITA (NEWS)
+// API  (article)
 // ==========================================
 
-// GET News (Join dengan Category)
-app.get('/api/news', (req, res) => {
+// GET article (Join dengan Category)
+app.get('/api/articles', (req, res) => {
     const sql = `
-        SELECT news.*, categories.name as category_name 
-        FROM news 
-        LEFT JOIN categories ON news.category_id = categories.id 
-        ORDER BY news.created_at DESC
+        SELECT articles.*, categories.name as category_name 
+        FROM articles
+        LEFT JOIN categories ON articles.category_id = categories.id 
+        ORDER BY articles.created_at DESC
     `;
     db.query(sql, (err, result) => {
         if (err) return res.status(500).json(err);
         res.json(result);
     });
-});
+}); 
 
-// POST News
-app.post('/api/news', upload.single('image'), (req, res) => {
-    const { title, content, category_id } = req.body;
-    const image = req.file ? req.file.filename : null;
-    
-    const sql = "INSERT INTO news (title, content, category_id, image) VALUES (?, ?, ?, ?)";
-    db.query(sql, [title, content, category_id, image], (err, result) => {
+// --- GET ALL ARTICLES ---
+app.get('/api/articles', (req, res) => {
+    const sql = `
+        SELECT articles.*, categories.name AS category_name 
+        FROM articles 
+        LEFT JOIN categories ON articles.category_id = categories.id 
+        ORDER BY articles.created_at DESC
+    `;
+    db.query(sql, (err, results) => {
         if (err) return res.status(500).json(err);
-        res.json({ message: "News created", id: result.insertId });
+        res.json(results);
     });
 });
 
-app.post('/api/news/:id', upload.single('image'), (req, res) => {
+// --- CREATE ARTICLE ---
+app.post('/api/articles', upload.single('image'), (req, res) => {
+    const { title, content, category_id, status } = req.body;
+    const articleStatus = status || 'published';
+    const image = req.file ? req.file.filename : null;
+    
+    const sql = "INSERT INTO articles (title, content, category_id, image, status) VALUES (?, ?, ?, ?, ?)";
+    db.query(sql, [title, content, category_id, image, articleStatus], (err, result) => {
+        if (err) return res.status(500).json(err);
+        res.json({ message: "Article created successfully", id: result.insertId });
+    });
+});
+
+// --- UPDATE ARTICLE (Supports PUT / POST Spoofing) ---
+app.post('/api/articles/:id', upload.single('image'), (req, res) => {
     const id = req.params.id;
-    const { title, content, category_id } = req.body;
+    const { title, content, category_id, status } = req.body;
     const newImage = req.file ? req.file.filename : null;
 
-    db.query("SELECT image FROM news WHERE id=?", [id], (err, rows) => {
+    db.query("SELECT image, status FROM articles WHERE id=?", [id], (err, rows) => {
         if (err) return res.status(500).json(err);
-        if (rows.length === 0) return res.status(404).json({ message: 'News not found' });
+        if (rows.length === 0) return res.status(404).json({ message: 'Article not found' });
 
         const oldImage = rows[0].image;
+        const articleStatus = status || rows[0].status || 'published';
 
         let sql, params;
         if (newImage) {
-            sql = "UPDATE news SET title=?, content=?, category_id=?, image=? WHERE id=?";
-            params = [title, content, category_id, newImage, id];
+            sql = "UPDATE articles SET title=?, content=?, category_id=?, image=?, status=? WHERE id=?";
+            params = [title, content, category_id, newImage, articleStatus, id];
         } else {
-            sql = "UPDATE news SET title=?, content=?, category_id=? WHERE id=?";
-            params = [title, content, category_id, id];
+            sql = "UPDATE articles SET title=?, content=?, category_id=?, status=? WHERE id=?";
+            params = [title, content, category_id, articleStatus, id];
         }
 
         db.query(sql, params, (err) => {
             if (err) return res.status(500).json(err);
 
-            // Hapus gambar lama SETELAH update sukses
+            // Hapus gambar lama dari server jika ada gambar baru yang diunggah
             if (newImage && oldImage) {
                 const oldPath = path.join(__dirname, 'uploads', oldImage);
-                if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+                if (fs.existsSync(oldPath)) {
+                    fs.unlink(oldPath, (err) => {
+                        if (err) console.error("Gagal menghapus gambar lama:", err);
+                    });
+                }
             }
 
-            res.json({ message: 'News updated successfully' });
+            res.json({ message: 'Article updated successfully' });
         });
     });
 });
 
-
-
-// DELETE News
-app.delete('/api/news/:id', (req, res) => {
+// --- DELETE ARTICLE ---
+app.delete('/api/articles/:id', (req, res) => {
     const id = req.params.id;
-    db.query("SELECT image FROM news WHERE id=?", [id], (err, results) => {
+    db.query("SELECT image FROM articles WHERE id=?", [id], (err, results) => {
         if (err) return res.status(500).json(err);
         
-        // Hapus data DB
-        db.query("DELETE FROM news WHERE id=?", [id], (err) => {
+        db.query("DELETE FROM articles WHERE id=?", [id], (err) => {
             if (err) return res.status(500).json(err);
             
-            // Hapus File
+            // Hapus file fisik gambar secara non-blocking
             if (results.length > 0 && results[0].image) {
                 const filePath = path.join(__dirname, 'uploads', results[0].image);
-                if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+                if (fs.existsSync(filePath)) {
+                    fs.unlink(filePath, (err) => {
+                        if (err) console.error("Gagal menghapus file:", err);
+                    });
+                }
             }
-            res.json({ message: "News deleted" });
+            res.json({ message: "Article deleted successfully" });
         });
     });
 });
-
 // ==========================================
 //          API LOGIC FOR LETTERS (FIXED)
 // ==========================================
@@ -1079,17 +1100,83 @@ app.get('/api/menus-access', (req, res) => {
     });
 });
 // 2. CREATE (POST DATA)
-app.post('/api/menus', (req, res) => {
-    const { parent_id, title, url, description, menu_order, icon, is_active } = req.body;
-    
-    const sql = `INSERT INTO menu (parent_id, title, url, description, menu_order, icon, is_active) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`;
-                 
-    db.query(sql, [parent_id, title, url, description, menu_order, icon, is_active], (err, result) => {
-        if (err) return res.status(500).json(err);
-        return res.json({ message: "Menu berhasil disimpan", id: result.insertId });
+ app.post('/api/menus', (req, res) => {
+    const { 
+        parent_id, 
+        title, 
+        url, 
+        description, 
+        menu_order, 
+        icon, 
+        is_active,
+        // --- TAMBAHKAN FIELD HAK AKSES DARI REQ.BODY ---
+        is_view,
+        is_create,
+        is_edit,
+        is_delete,
+        is_export,
+        is_duplicate,
+        is_unlock
+    } = req.body;
+
+    // Normalisasi parent_id: Jika 0, '', atau null, ubah jadi NULL (atau 0 sesuai standar DB Anda)
+    const formattedParentId = (parent_id === '' || parent_id === null || parent_id === undefined) ? null : parent_id;
+
+    // Normalisasi Flag: Mengubah nilai boolean/string/undefined menjadi angka Integer (1 atau 0)
+    const parseFlag = (val, defaultValue = 1) => {
+        if (val === undefined || val === null) return defaultValue;
+        return (val === 1 || val === '1' || val === true) ? 1 : 0;
+    };
+
+    const sql = `INSERT INTO menu (
+        parent_id, 
+        title, 
+        url, 
+        description, 
+        menu_order, 
+        icon, 
+        is_active,
+        is_view,
+        is_create,
+        is_edit,
+        is_delete,
+        is_export,
+        is_duplicate,
+        is_unlock
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+    const values = [
+        formattedParentId,
+        title || '',
+        url || '',
+        description || '',
+        menu_order || 1,
+        icon || '',
+        parseFlag(is_active, 1),
+        parseFlag(is_view, 1),      // Default ke 1 jika tidak dikirim
+        parseFlag(is_create, 1),
+        parseFlag(is_edit, 1),
+        parseFlag(is_delete, 1),
+        parseFlag(is_export, 1),
+        parseFlag(is_duplicate, 1),
+        parseFlag(is_unlock, 1)
+    ];
+
+    db.query(sql, values, (err, result) => {
+        if (err) {
+            console.error("Error inserting menu:", err);
+            return res.status(500).json({ 
+                error: "Gagal menyimpan data menu ke database", 
+                details: err.message 
+            });
+        }
+        
+        return res.status(201).json({ 
+            message: "Menu berhasil disimpan", 
+            id: result.insertId 
+        });
     });
-});
+});  
 
 // 3. UPDATE (PUT DATA)
 app.put('/api/menus/:id', (req, res) => {
@@ -1502,12 +1589,9 @@ app.delete('/api/users/:id', (req, res) => {
 });
  
   // =========================================================================
-// 1. GET DATA MATRIKS (MURNI STRING '1' DAN '0')
+// 1. GET DATA MATRIKS (MURNI STRING 1 DAN '0')
 // =========================================================================
-
-// =========================================================================
-// 1. GET DATA MATRIKS (STRUKTUR SINKRON DENGAN LOGIKA /api/menus)
-// =========================================================================
+ 
  app.get('/api/module-authority/:role_id', (req, res) => {
     const roleId = req.params.role_id;
 
@@ -1539,16 +1623,19 @@ app.delete('/api/users/:id', (req, res) => {
             if (errAuth) return res.status(500).json({ error: errAuth.message });
 
             // 3. Masukkan hak akses tabel transaksi ke dalam Map (Key-Value)
+           // Helper fungsi konversi aman (letakkan di luar loop atau di atas handler API)
+            const parseFlag = (val) => (val === 1 || val === '1' || val === true ? 1 : 0);
+
             const authMap = {};
             authorities.forEach(auth => {
                 authMap[String(auth.menu_id)] = {
-                    is_view: String(auth.is_view) === '1' ? '1' : '0',
-                    is_create: String(auth.is_create) === '1' ? '1' : '0',
-                    is_edit: String(auth.is_edit) === '1' ? '1' : '0',
-                    is_delete: String(auth.is_delete) === '1' ? '1' : '0',
-                    is_export: String(auth.is_export) === '1' ? '1' : '0',
-                    is_duplicate: String(auth.is_duplicate) === '1' ? '1' : '0',
-                    is_unlock: String(auth.is_unlock) === '1' ? '1' : '0'
+                    is_view: parseFlag(auth.is_view),
+                    is_create: parseFlag(auth.is_create),
+                    is_edit: parseFlag(auth.is_edit),
+                    is_delete: parseFlag(auth.is_delete),
+                    is_export: parseFlag(auth.is_export),
+                    is_duplicate: parseFlag(auth.is_duplicate),
+                    is_unlock: parseFlag(auth.is_unlock)
                 };
             });
 
@@ -1561,20 +1648,26 @@ app.delete('/api/users/:id', (req, res) => {
                     title: menu.title,
                     parent_id: menu.parent_id,
                     menu_order: menu.menu_order,
-                    is_active: String(menu.is_active) === '1' ? '1' : '0',
+                    is_active: parseFlag(menu.is_active),
                     
                     menu_config: {
-                        is_view: String(menu.is_view) === '1' ? '1' : '0',
-                        is_create: String(menu.is_create) === '1' ? '1' : '0',
-                        is_edit: String(menu.is_edit) === '1' ? '1' : '0',
-                        is_delete: String(menu.is_delete) === '1' ? '1' : '0',
-                        is_export: String(menu.is_export) === '1' ? '1' : '0',
-                        is_duplicate: String(menu.is_duplicate) === '1' ? '1' : '0',
-                        is_unlock: String(menu.is_unlock) === '1' ? '1' : '0'
+                        is_view: parseFlag(menu.is_view),
+                        is_create: parseFlag(menu.is_create),
+                        is_edit: parseFlag(menu.is_edit),
+                        is_delete: parseFlag(menu.is_delete),
+                        is_export: parseFlag(menu.is_export),
+                        is_duplicate: parseFlag(menu.is_duplicate),
+                        is_unlock: parseFlag(menu.is_unlock)
                     },
                     
                     access: authMap[idString] || {
-                        is_view: '0', is_create: '0', is_edit: '0', is_delete: '0', is_export: '0', is_duplicate: '0', is_unlock: '0'
+                        is_view: 0, 
+                        is_create: 0, 
+                        is_edit: 0, 
+                        is_delete: 0, 
+                        is_export: 0, 
+                        is_duplicate: 0, 
+                        is_unlock: 0
                     }
                 };
             });
@@ -1595,7 +1688,7 @@ app.delete('/api/users/:id', (req, res) => {
 
                 // Aturan penentuan MENU UTAMA (ROOT LEVEL):
                 // Dianggap menu utama jika parent_id kosong, bernilai 0, atau bernilai 1 (sesuai konfigurasi database Anda)
-                const isRoot = !pId || pId === 0 || pId === '0' || pId === 1 || pId === '1';
+                const isRoot = !pId || pId === 0 || pId === 0 || pId === 1 || pId === 1;
 
                 if (isRoot) {
                     // Masuk sebagai layer paling luar (Root Node)
@@ -1634,19 +1727,23 @@ app.delete('/api/users/:id', (req, res) => {
 });
 
 // =========================================================================
-// 2. POST SAVE (MURNI STRING '1' DAN '0')
+// 2. POST SAVE (MURNI STRING 1 DAN '0')
 // =========================================================================
-app.post('/api/module-authority/save', (req, res) => {
+ app.post('/api/module-authority/save', (req, res) => {
     const { role_id, permissions } = req.body;
 
     if (!role_id) return res.status(400).json({ error: "Role ID wajib dipilih!" });
+
+    // Helper untuk konversi aman dari boolean/string/number ke 1 atau 0
+    const parseFlag = (val) => (val === 1 || val === '1' || val === true ? 1 : 0);
 
     const deleteSql = "DELETE FROM module_authority WHERE role_id = ?";
     db.query(deleteSql, [role_id], (delErr) => {
         if (delErr) return res.status(500).json({ error: delErr.message });
 
-        if (!permissions || permissions.length === 0) {
-            return res.json({ message: "Data dibersihkan" });
+        // Jika array permissions kosong, langsung berikan respons sukses setelah delete
+        if (!Array.isArray(permissions) || permissions.length === 0) {
+            return res.json({ message: "Hak akses berhasil dibersihkan!" });
         }
 
         const insertSql = `
@@ -1658,22 +1755,25 @@ app.post('/api/module-authority/save', (req, res) => {
         const values = permissions.map(p => [
             role_id,
             p.menu_id,
-            String(p.is_view) === '1' ? '1' : '0',
-            String(p.is_create) === '1' ? '1' : '0',
-            String(p.is_edit) === '1' ? '1' : '0',
-            String(p.is_delete) === '1' ? '1' : '0',
-            String(p.is_export) === '1' ? '1' : '0',
-            String(p.is_duplicate) === '1' ? '1' : '0',
-            String(p.is_unlock) === '1' ? '1' : '0'
+            parseFlag(p.is_view),
+            parseFlag(p.is_create),
+            parseFlag(p.is_edit),
+            parseFlag(p.is_delete),
+            parseFlag(p.is_export),
+            parseFlag(p.is_duplicate),
+            parseFlag(p.is_unlock)
         ]);
 
         db.query(insertSql, [values], (insErr, result) => {
-            if (insErr) return res.status(500).json({ error: insErr.message });
-            res.json({ message: "Hak akses berhasil disimpan!" });
+            if (insErr) {
+                console.error("Error inserting module_authority:", insErr);
+                return res.status(500).json({ error: "Gagal menyimpan hak akses ke database.", details: insErr.message });
+            }
+            
+            return res.json({ message: "Hak akses berhasil disimpan!", affectedRows: result.affectedRows });
         });
     });
 });
-
 
 app.listen(PORT, () => {
     console.log(`🚀 Server berjalan di http://localhost:${PORT}`);

@@ -5,6 +5,7 @@ import {
   Instagram, Linkedin, Twitter, Quote
 } from 'lucide-react';
 
+
 const LandingPageCrop = () => {
   const [currentSlide, setCurrentSlide] = useState(2);
 
@@ -346,10 +347,10 @@ const prevStory = () => setCurrentStory((prev) => (prev === 0 ? testimonials.len
       </div>
     </div>
 
-    {/* Column 04: Newsletter */}
+    {/* Column 04: articleletter */}
     <div>
       <h5 className="font-black text-sm mb-6 flex gap-3">
-        <span className="text-gray-400">03</span> Subscribe to our newsletter.
+        <span className="text-gray-400">03</span> Subscribe to our articleletter.
       </h5>
       <div className="flex flex-col gap-4">
         <input 

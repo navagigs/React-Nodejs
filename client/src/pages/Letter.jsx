@@ -538,7 +538,7 @@ const calculateInvoiceData = (items) => {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/>
                 </svg>
-                Buat Surat Baru
+                Tambah
             </button>
         </div>
 
@@ -746,7 +746,6 @@ const calculateInvoiceData = (items) => {
         <div className="bg-white rounded-2xl shadow-xl shadow-gray-200/50 border border-gray-100 p-6 sm:p-8">
             <div className="flex justify-between items-center pb-6 border-b border-gray-100 mb-6">
                 <h3 className="text-xl font-bold text-gray-800">{isEditing ? '✏️ Ubah Data Informasi Surat' : '✨ Buat Form Surat Baru'}</h3>
-                <button onClick={handleBackToTable} className="px-4 py-2 border border-gray-200 text-gray-600 text-sm font-medium rounded-xl">Kembali</button>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -870,7 +869,7 @@ const calculateInvoiceData = (items) => {
 
               <div className="flex justify-end gap-3">
                   <button type="button" onClick={handleBackToTable} className="px-5 py-2.5 text-gray-600 bg-gray-100 rounded-xl">Batal</button>
-                  <button type="submit" className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl">Simpan & Arsipkan</button>
+                  <button type="submit" className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl">Simpan</button>
               </div>
             </form>
         </div>
