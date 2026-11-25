@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { CATEGORY_URL } from '../Api';
+import TableExports from '../TableExports';
+import PageSizeSelect from '../PageSizeSelect';
+import { useTablePagination } from '../tablePagination';
+import { useMenuPermission } from '../permissions';
+import FeaturePageHeader from '../components/layout/FeaturePageHeader';
 
 const Category = () => {
+  const access = useMenuPermission('/category');
   const [categories, setCategories] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -36,17 +42,36 @@ const Category = () => {
   };
 
   useEffect(() => {
+    if (!access.canView) return;
     fetchCategories();
-  }, []);
+  }, [access.canView]);
 
   // --- FILTER LOGIC ---
   const filteredCategories = categories.filter((cat) => 
       cat.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const {
+    currentPage,
+    setCurrentPage,
+    itemsPerPage,
+    setItemsPerPage,
+    currentItems,
+    indexOfFirstItem,
+    indexOfLastItem,
+    totalPages
+  } = useTablePagination(filteredCategories);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
   // --- FORM HANDLERS ---
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!isEditing && !access.canCreate) return;
+    if (isEditing && !access.canEdit) return;
 
     if (!currentCategory.name.trim()) {
         showNotification("Nama Kategori wajib diisi!", "error");
@@ -86,6 +111,7 @@ const Category = () => {
   };
 
   const handleDelete = async (id) => {
+    if (!access.canDelete) return;
     if (window.confirm("Yakin ingin menghapus kategori ini?")) {
         try {
             const response = await fetch(`${CATEGORY_URL}/${id}`, { method: 'DELETE' });
@@ -102,12 +128,14 @@ const Category = () => {
 
   // --- MODAL CONTROL ---
   const handleAddNew = () => {
+    if (!access.canCreate) return;
     setIsEditing(false);
     setCurrentCategory({ name: '' });
     setIsModalOpen(true);
   };
 
   const handleEdit = (category) => {
+    if (!access.canEdit) return;
     setIsEditing(true);
     setCurrentCategory(category);
     setIsModalOpen(true);
@@ -121,10 +149,52 @@ const Category = () => {
   const inputStyle = "w-full border border-gray-200 bg-gray-50 rounded-lg px-4 py-2.5 text-sm focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 focus:bg-white outline-none transition-all duration-200 placeholder-gray-400";
   const labelStyle = "block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5";
 
+  if (!access.canView) {
+    return (
+      <div className="app-card app-card-padded">
+        <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m0-6h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <h3 className="text-xl font-bold text-gray-900">Akses Ditolak</h3>
+        <p className="text-gray-500 text-sm mt-2">Anda tidak memiliki hak akses untuk melihat data ini.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-5xl mx-auto"> {/* Container lebih kecil untuk kategori */}
+    <div className="app-page"> {/* Container lebih kecil untuk kategori */}
+      <FeaturePageHeader
+        title="Kategori"
+        subtitle="Kelola kategori artikel"
+        actions={
+          <>
+            <TableExports
+              menuUrl="/category"
+              title="Kategori"
+              filename="data-kategori"
+              columns={[
+                { label: 'Nomor', key: 'no', width: 1 },
+                { label: 'Nama Kategori', key: 'name', width: 8 }
+              ]}
+              rows={currentItems.map((item, index) => ({
+                no: indexOfFirstItem + index + 1,
+                name: item.name || '-'
+              }))}
+            />
+            {access.canCreate && (
+              <button
+                onClick={handleAddNew}
+                className="app-button app-button-primary"
+              >
+                <svg className="w-5 h-5 transition-transform group-hover:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
+                Tambah
+              </button>
+            )}
+          </>
+        }
+      />
       
-      <div className="bg-white rounded-2xl shadow-xl shadow-gray-200/50 border border-gray-100 p-6 sm:p-8 animate-fade-in-up">
+      <div className="app-page">
       
         {/* Toast Notification */}
         {notification.show && (
@@ -145,86 +215,129 @@ const Category = () => {
             </div>
         )}
 
-        {/* --- HEADER --- */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 border-b border-gray-100 pb-6">
-            <div>
-                <h2 className="text-2xl font-bold text-gray-900 tracking-tight">article Categories</h2>
-                <p className="text-sm text-gray-500 mt-1">Manage categories for your article articles.</p>
-            </div>
-            
-            <button 
-                onClick={handleAddNew}
-                className="group bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center gap-2 shadow-lg shadow-indigo-500/30 hover:shadow-indigo-500/50 hover:-translate-y-0.5"
-            >
-                <svg className="w-5 h-5 transition-transform group-hover:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
-                Tambah
-            </button>
-        </div>
-
         {/* --- SEARCH BAR --- */}
-        <div className="mb-6 bg-gray-50/50 p-4 rounded-xl border border-gray-100">
-            <div className="relative w-full">
+        <div className="app-card app-card-padded">
+          <h2 className="mb-4 text-sm font-bold text-slate-800">Filter Kategori</h2>
+          <div className="flex flex-col md:flex-row md:flex-wrap items-center gap-4">
+            <div className="relative w-full flex-1">
                 <input 
                     type="text" 
-                    placeholder="Search category..." 
-                    className="pl-10 pr-4 py-2.5 w-full bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition shadow-sm placeholder-gray-400"
+                    placeholder="Cari kategori..." 
+                    className="app-input pl-9"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                 />
-                <svg className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                <svg className="w-5 h-5 text-gray-400 absolute left-3 top-2.5 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
             </div>
+          </div>
         </div>
 
         {/* --- TABLE DATA --- */}
-        <div className="overflow-hidden border border-gray-100 rounded-xl shadow-sm">
+        <div className="app-table-shell">
             <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
-                <thead className="bg-gray-50/80 backdrop-blur-sm border-b border-gray-100">
-                    <tr className="text-gray-500 text-xs font-bold uppercase tracking-wider">
-                        <th className="py-4 px-6">Category Name</th>
-                        <th className="py-4 pr-6 text-right w-32">Actions</th>
+                <thead className="app-thead">
+                    <tr className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">
+                        <th className="py-4 px-6 w-12 text-center">Nomor</th>
+                        <th className="py-4 px-6">Nama Kategori</th>
+                        <th className="py-4 pr-6 text-right w-32">Aksi</th>
                     </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-50">
-                    {filteredCategories.map((item) => (
+                <tbody className="divide-y divide-slate-100 bg-white">
+                    {currentItems.map((item, index) => (
                     <tr key={item.id} className="hover:bg-indigo-50/30 transition-colors duration-150 group">
+                        <td className="py-4 px-6 text-center text-sm text-gray-500">{indexOfFirstItem + index + 1}</td>
                         <td className="py-4 px-6">
                             <span className="font-semibold text-gray-800">{item.name}</span>
                         </td>
                         <td className="py-4 pr-6 text-right space-x-2">
-                            <button onClick={() => handleEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all">
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-                            </button>
-                            <button onClick={() => handleDelete(item.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                            </button>
+                            {access.canEdit && (
+                                <button onClick={() => handleEdit(item)} className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all">
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                                </button>
+                            )}
+                            {access.canDelete && (
+                                <button onClick={() => handleDelete(item.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all">
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                </button>
+                            )}
                         </td>
                     </tr>
                     ))}
                     {filteredCategories.length === 0 && (
                         <tr>
-                            <td colSpan="2" className="py-12 text-center text-gray-400">No categories found</td>
+                            <td colSpan="3" className="py-12 text-center text-gray-400">Kategori tidak ditemukan</td>
                         </tr>
                     )}
                 </tbody>
                 </table>
-            </div>
-        </div>
-      </div>
+             </div>
+         </div>
 
-      {/* --- MODAL FORM --- */}
+         {filteredCategories.length > 0 && (
+            <div className="flex flex-col sm:flex-row justify-between items-center mt-6 gap-4 app-pagination">
+                <div className="flex flex-col sm:flex-row items-center gap-3">
+                    <PageSizeSelect value={itemsPerPage} onChange={setItemsPerPage} />
+                    <div className="text-sm text-gray-500"> 
+                        dari <span className="font-semibold text-gray-700">{filteredCategories.length}</span> records
+                    </div>
+                </div>
+                <div className="flex items-center gap-1">
+                     <button
+                         onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                         disabled={currentPage === 1}
+                         className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                             currentPage === 1
+                             ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                             : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                         }`}
+                     >
+                          Sebelumnya
+
+                     </button>
+                     {[...Array(totalPages)].map((_, index) => (
+                         <button
+                             key={index + 1}
+                             onClick={() => setCurrentPage(index + 1)}
+                             className={`w-8 h-8 rounded-lg text-xs font-semibold border transition ${
+                                 currentPage === index + 1
+                                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-600/10'
+                                 : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                             }`}
+                         >
+                             {index + 1}
+                         </button>
+                     ))}
+                     <button
+                         onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                         disabled={currentPage === totalPages}
+                         className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                             currentPage === totalPages
+                             ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                             : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                         }`}
+                     >
+                          Berikutnya
+
+                     </button>
+                 </div>
+             </div>
+         )}
+       </div>
+
+       {/* --- MODAL FORM --- */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm transition-opacity">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-0 relative animate-scale-up">
             <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-2xl">
-                <h3 className="text-xl font-bold text-gray-800">{isEditing ? 'Edit Category' : 'Add Category'}</h3>
+                <h3 className="text-xl font-bold text-gray-800">{isEditing ? 'Ubah Kategori' : 'Tambah Kategori'}</h3>
                 <button onClick={closeModal} className="text-gray-400 hover:text-gray-600 transition">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </div>
-            <form onSubmit={handleSubmit} className="p-8 space-y-6">
+            <form onSubmit={handleSubmit} className="p-8 space-y-5">
               <div>
-                  <label className={labelStyle}>Category Name *</label>
+                  <label className={labelStyle}>Nama Kategori *</label>
                   <input type="text" required className={inputStyle} value={currentCategory.name} onChange={(e) => setCurrentCategory({...currentCategory, name: e.target.value})} />
               </div>
               <div className="flex gap-4 pt-4 border-t border-gray-100 mt-4">

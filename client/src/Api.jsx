@@ -1,16 +1,22 @@
-const BASE_URL = "http://localhost:5001";
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? 'http://localhost:5001' : '');
 
 export const LOGIN_URL = `${BASE_URL}/api/login`;
+export const FACE_LOGIN_URL = `${BASE_URL}/api/face-login`;
 export const PORTFOLIO_URL = `${BASE_URL}/api/portfolio`;
 export const CLIENT_URL = `${BASE_URL}/api/clients`;
 export const LETTER_URL = `${BASE_URL}/api/letters`;
+export const LETTER_INVOICE_URL = `${BASE_URL}/api/letters/invoice`;
 export const CATEGORY_URL = `${BASE_URL}/api/categories`;
 export const ARTICLE_URL = `${BASE_URL}/api/articles`;
 export const PROJECT_DOCUMENT_URL = `${BASE_URL}/api/project-documents`;
 export const MENU_URL = `${BASE_URL}/api/menus`;
 export const MENU_URL_ACCESS = `${BASE_URL}/api/menus-access`;
 export const MENU_URL_ACCESS_BY_ROLE = `${BASE_URL}/api/menus/access`;
-export const BASE_IMAGE_URL = `${BASE_URL}/uploads/`; 
+export const BASE_IMAGE_URL = import.meta.env.VITE_UPLOAD_BASE_URL || `${BASE_URL}/uploads/`;
 export const ROLE_URL = `${BASE_URL}/api/roles`;
 export const USER_URL = `${BASE_URL}/api/users`;
 export const AUTH_MATRIX_URL = `${BASE_URL}/api/module-authority`;
+export const APP_SETTINGS_URL = `${BASE_URL}/api/app-settings`;
+export const QR_CODE_URL = `${BASE_URL}/api/qr-codes`;
+export const BACKUP_URL = `${BASE_URL}/api/backups`;
+export const ACTIVITY_LOG_URL = `${BASE_URL}/api/activity-logs`;

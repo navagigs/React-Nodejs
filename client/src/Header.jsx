@@ -47,7 +47,7 @@ const Header = ({ isMobileMenuOpen, setIsMobileMenuOpen, isProfileOpen, setIsPro
               </span>
               <input 
                 type="text" 
-                placeholder="Search anything's" 
+                placeholder="Cari apa saja..."
                 className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-full text-sm focus:outline-none focus:border-blue-500 focus:bg-white transition-all text-slate-700"
               />
             </div>
@@ -58,8 +58,8 @@ const Header = ({ isMobileMenuOpen, setIsMobileMenuOpen, isProfileOpen, setIsPro
             
             {/* Teks link tengah kanan di gambar */}
             <div className="hidden lg:flex items-center gap-5 text-sm font-medium text-slate-500">
-              <a href="#" className="hover:text-slate-800 transition-colors">Reports & Analytics</a>
-              <a href="#" className="hover:text-slate-800 transition-colors">Help</a>
+              <a href="#" className="hover:text-slate-800 transition-colors">Laporan & Analitik</a>
+              <a href="#" className="hover:text-slate-800 transition-colors">Bantuan</a>
             </div>
 
             <div className="h-4 w-px bg-slate-200 hidden lg:block"></div>
@@ -90,21 +90,20 @@ const Header = ({ isMobileMenuOpen, setIsMobileMenuOpen, isProfileOpen, setIsPro
 
               {/* Dropdown Card */}
               {isProfileOpen && (
-                <div className="absolute right-0 mt-3 w-56 bg-white rounded-xl shadow-xl border border-slate-100 p-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="absolute right-0 mt-3 w-56 bg-white rounded-xl p-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
                   <div className='p-2'>
                     <p className='text-sm font-bold text-slate-800'>Robert Brown</p>
                     <p className='text-xs text-slate-400'>robert.brown@example.com</p>
                   </div>
-                  <div className='w-full h-px bg-slate-100 my-1.5'></div>
                   <a href="#" className="flex items-center gap-3 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-lg transition-colors">
-                    <Icons.User className="w-4 h-4 text-slate-400" /> Profile
+                    <Icons.User className="w-4 h-4 text-slate-400" /> Profil
                   </a>
                   <a href="#" className="flex items-center gap-3 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 rounded-lg transition-colors">
-                    <Icons.Settings className="w-4 h-4 text-slate-400" /> Account Settings
+                    <Icons.Settings className="w-4 h-4 text-slate-400" /> Pengaturan Akun
                   </a>
                   <div className='w-full h-px bg-slate-100 my-1.5'></div>
                   <button onClick={handleLogout} className="w-full flex items-center gap-3 px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg transition-colors text-left font-semibold">
-                    <Icons.LogOut className="w-4 h-4" /> Sign Out
+                    <Icons.LogOut className="w-4 h-4" /> Keluar
                   </button>
                 </div>
               )}

@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  
+  h1, h2, h3, h4, .font-heading {
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    letter-spacing: -0.02em;
+  }
+
+  .font-display {
+    font-family: 'Outfit', sans-serif;
+    letter-spacing: -0.03em;
+  }
+
+  .font-brand-tech {
+    font-family: 'Space Grotesk', 'Outfit', sans-serif;
+    letter-spacing: -0.01em;
+  }
+
+  .font-serif-title {
+    font-family: 'Outfit', sans-serif;
+  }
+
+  .font-formal-brand {
+    font-family: 'Space Grotesk', sans-serif;
+    letter-spacing: 0.04em;
+  }
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+}
+
+.animate-marquee {
+  display: flex;
+  width: max-content;
+  animation: marquee 30s linear infinite;
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
+
+.skew-wgs-left {
+  transform: skewX(-14deg);
+}
+
+.skew-wgs-right {
+  transform: skewX(14deg);
+}
+
+.unskew {
+  transform: skewX(14deg);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f4f4f5;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #f97316;
+}

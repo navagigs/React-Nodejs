@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Folder, FolderOpen, ChevronRight, ChevronDown, ShieldAlert, Key } from 'lucide-react';
+import { Save, Folder, FolderOpen, ChevronRight, ChevronDown, Key } from 'lucide-react';
 import { ROLE_URL, AUTH_MATRIX_URL } from '../Api';
+import TableExports from '../TableExports';
+import { useMenuPermission } from '../permissions';
+import FeaturePageHeader from '../components/layout/FeaturePageHeader';
 
 const ModuleAuthority = () => {
+  const access = useMenuPermission('/hak-akses/module-authority');
   const [roles, setRoles] = useState([]);
   const [selectedRoleId, setSelectedRoleId] = useState('');
   const [matrix, setMatrix] = useState([]);
@@ -12,14 +16,16 @@ const ModuleAuthority = () => {
   // State baru untuk menyimpan ID menu mana saja yang sedang terbuka di pohon
   const [expandedIds, setExpandedIds] = useState([]);
 
+  const rootItems = matrix.filter(item => !item.parent_id || item.parent_id === 1 || item.parent_id === '1' || item.parent_id === 0 || item.parent_id === '0');
+
   const accessColumns = [
-    { key: 'is_view', label: 'View' },
-    { key: 'is_create', label: 'Create' },
-    { key: 'is_edit', label: 'Edit' },
-    { key: 'is_delete', label: 'Delete' },
-    { key: 'is_export', label: 'Export' },
-    { key: 'is_duplicate', label: 'Duplicate' },
-    { key: 'is_unlock', label: 'Unlock' },
+    { key: 'is_view', label: 'Lihat' },
+    { key: 'is_create', label: 'Tambah' },
+    { key: 'is_edit', label: 'Ubah' },
+    { key: 'is_delete', label: 'Hapus' },
+    { key: 'is_export', label: 'Ekspor' },
+    { key: 'is_duplicate', label: 'Duplikat' },
+    { key: 'is_unlock', label: 'Buka Kunci' },
   ];
 
   const isColumnEnabledInMenu = (item, colKey) => {
@@ -48,16 +54,17 @@ const ModuleAuthority = () => {
   };
 
   useEffect(() => {
+    if (!access.canView) return;
     fetch(ROLE_URL)
       .then(res => res.json())
       .then(data => {
         setRoles(Array.isArray(data) ? data : []);
       })
       .catch(() => showNotification("Gagal memuat list role", "error"));
-  }, []);
+  }, [access.canView]);
 
   useEffect(() => {
-    if (!selectedRoleId) return;
+    if (!access.canView || !selectedRoleId) return;
     setLoading(true);
     fetch(`${AUTH_MATRIX_URL}/${selectedRoleId}`)
       .then(res => res.json())
@@ -73,9 +80,10 @@ const ModuleAuthority = () => {
         showNotification("Gagal memuat matriks hak akses", "error");
         setLoading(false);
       });
-  }, [selectedRoleId]);
+  }, [selectedRoleId, access.canView]);
 
   const handleCheckboxChange = (menuId, accessType) => {
+    if (!access.canEdit) return;
     const cascadeToChildren = (subs, targetVal) => {
       if (!Array.isArray(subs)) return [];
       return subs.map(sub => {
@@ -124,6 +132,7 @@ const ModuleAuthority = () => {
   };
 
   const handleRowMasterChange = (menuId, checked) => {
+    if (!access.canEdit) return;
     const targetVal = checked ? '1' : '0';
 
     const cascadeRowToChildren = (subs, val) => {
@@ -183,6 +192,7 @@ const ModuleAuthority = () => {
   };
 
   const handleGlobalAllChange = (checked) => {
+    if (!access.canEdit) return;
     const targetVal = checked ? '1' : '0';
     const updateAllNodes = (items) => {
       if (!Array.isArray(items)) return [];
@@ -245,8 +255,33 @@ const ModuleAuthority = () => {
     return result;
   };
 
+  const exportFlag = (value) => (value === 1 || value === '1' || value === true ? 'Ya' : 'Tidak');
+
+  const flattenExportRows = (items, depth = 0, startNo = 1) => {
+    if (!Array.isArray(items)) return [];
+    let nextNo = startNo;
+    return items.flatMap((item) => {
+      const row = {
+        ...item,
+        no: nextNo++,
+        level: depth + 1,
+        menu: `${'  '.repeat(depth)}${item.title || '-'}`,
+        view: exportFlag(item.access && item.access.is_view),
+        create: exportFlag(item.access && item.access.is_create),
+        edit: exportFlag(item.access && item.access.is_edit),
+        delete: exportFlag(item.access && item.access.is_delete),
+        export: exportFlag(item.access && item.access.is_export),
+        duplicate: exportFlag(item.access && item.access.is_duplicate),
+        unlock: exportFlag(item.access && item.access.is_unlock)
+      };
+      const children = flattenExportRows(item.subs || [], depth + 1, nextNo);
+      nextNo += children.length;
+      return [row, ...children];
+    });
+  };
+
   const handleSave = async () => {
-    if (!selectedRoleId) return;
+    if (!access.canEdit || !selectedRoleId) return;
     const payload = {
       role_id: parseInt(selectedRoleId, 10),
       permissions: flattenMatrix(matrix)
@@ -259,7 +294,10 @@ const ModuleAuthority = () => {
         body: JSON.stringify(payload)
       });
       if (!response.ok) throw new Error("Gagal menyimpan data");
-      
+
+      const refreshedPermissions = payload.permissions.filter((item) => String(item.is_view) === '1');
+      localStorage.setItem('permissions', JSON.stringify(refreshedPermissions));
+
       showNotification("Hak akses berhasil diperbarui!", "success");
       setTimeout(() => window.location.reload(), 1200);
     } catch (error) {
@@ -267,8 +305,24 @@ const ModuleAuthority = () => {
     }
   };
 
+  const buildRowNumbers = (items, start = 1) => {
+    let next = start;
+    const numbers = {};
+    items.forEach((item) => {
+      numbers[item.menu_id] = next++;
+      if (item.subs && item.subs.length > 0) {
+        const childNumbers = buildRowNumbers(item.subs, next);
+        Object.assign(numbers, childNumbers);
+        next += Object.keys(childNumbers).length;
+      }
+    });
+    return numbers;
+  };
+
+  const rowNumbers = buildRowNumbers(rootItems);
+
   // --- KOMPONEN TREE VIEW RENDER ROW REKURSIF ---
-  const RenderRow = ({ item, depth = 0 }) => {
+  const RenderRow = ({ item, depth = 0, no }) => {
     if (!item) return null;
     
     const isChild = depth > 0;
@@ -282,6 +336,7 @@ const ModuleAuthority = () => {
     return (
       <>
         <tr className={`border-b border-gray-200/60 hover:bg-indigo-50/50 transition-colors ${isChild ? 'bg-slate-50/60' : 'bg-white'}`}>
+          <td className="py-3.5 px-2 text-center text-xs font-semibold text-gray-400">{no}</td>
           <td className="py-3.5 px-6 font-medium text-sm text-gray-800" style={{ paddingLeft: `${(depth * 1.5) + 1.5}rem` }}>
             <div className="flex items-center gap-1.5 relative">
               
@@ -308,6 +363,7 @@ const ModuleAuthority = () => {
                 <input 
                   type="checkbox"
                   className="w-4 h-4 rounded text-indigo-600 border-gray-300 focus:ring-indigo-500 cursor-pointer mr-1.5 flex-shrink-0"
+                  disabled={!access.canEdit}
                   checked={isRowAllChecked}
                   onChange={(e) => handleRowMasterChange(item.menu_id, e.target.checked)}
                 />
@@ -338,6 +394,7 @@ const ModuleAuthority = () => {
                   <input 
                     type="checkbox" 
                     className="w-4 h-4 rounded text-indigo-600 border-gray-300 focus:ring-indigo-500 cursor-pointer"
+                    disabled={!access.canEdit}
                     checked={String(itemAccess[col.key]).trim() === '1'} 
                     onChange={() => handleCheckboxChange(item.menu_id, col.key)}
                   />
@@ -354,7 +411,7 @@ const ModuleAuthority = () => {
 
         {/* Render rekursif anak di bawahnya secara cascading hanya jika status pohon terbuka (isExpanded) */}
         {hasChildren && isExpanded && item.subs.map(sub => (
-          <RenderRow key={sub.menu_id} item={sub} depth={depth + 1} />
+          <RenderRow key={sub.menu_id} item={sub} depth={depth + 1} no={rowNumbers[sub.menu_id]} />
         ))}
       </>
     );
@@ -362,12 +419,13 @@ const ModuleAuthority = () => {
 
   const isGlobalAllChecked = checkIsGlobalAllChecked(matrix);
 
-  const currentMenuData = matrix.find(item => 
-    item.title?.toLowerCase().includes("authority") || 
-    item.title?.toLowerCase().includes("hak akses")
-  );
-
-  const headerTitle = currentMenuData ? currentMenuData.title : "Module Authority";
+  if (!access.canView) {
+    return (
+      <div className="app-card app-card-padded text-center text-sm text-slate-500">
+        Anda tidak memiliki hak akses untuk melihat data ini.
+      </div>
+    );
+  }
 
   return (    
     <>
@@ -377,22 +435,34 @@ const ModuleAuthority = () => {
         </div>
       )}
       
-      <div className="max-w-7xl mx-auto"> 
+      <div className="app-page"> 
+        <FeaturePageHeader
+          title="Otorisasi Modul"
+          subtitle="Kelola otorisasi modul"
+          actions={
+            <TableExports
+              menuUrl="/hak-akses/module-authority"
+              title="Otorisasi Modul"
+              filename="data-otorisasi-modul"
+              columns={[
+                { label: 'Nomor', key: 'no', width: 1 },
+                { label: 'Struktur Pohon Menu', key: 'menu', width: 5 },
+                { label: 'Lihat', key: 'view', width: 1 },
+                { label: 'Tambah', key: 'create', width: 1 },
+                { label: 'Ubah', key: 'edit', width: 1 },
+                { label: 'Hapus', key: 'delete', width: 1 },
+                { label: 'Ekspor', key: 'export', width: 1 },
+                { label: 'Duplikat', key: 'duplicate', width: 1 },
+                { label: 'Buka Kunci', key: 'unlock', width: 1 }
+              ]}
+              rows={flattenExportRows(matrix)}
+            />
+          }
+        />
         {/* CONTAINER FILTER */}
-        <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm mb-6">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 border-b border-gray-100 pb-5">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
-                <ShieldAlert className="w-5 h-5" />
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900 tracking-tight">{headerTitle}</h2>
-                <p className="text-xs text-gray-400 mt-0.5">Kelola data peran pengguna aplikasi beserta matriks hak akses secara hierarkis.</p>
-              </div>
-            </div>
-          </div>
-           
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4 pt-1">
+        <div className="app-card app-card-padded">
+          <h2 className="mb-4 text-sm font-bold text-slate-800">Filter Otorisasi</h2>
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-4 pt-1">
             <label className="text-sm font-semibold text-gray-600 uppercase tracking-wider min-w-[80px]">
               Role Akses
             </label>
@@ -416,13 +486,14 @@ const ModuleAuthority = () => {
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse table-fixed min-w-[850px]">
               <thead className="bg-slate-100/80 border-b border-gray-200">
-                <tr className="text-gray-500 text-xs font-bold uppercase tracking-wider">
+                <tr className="text-slate-500 text-[11px] font-bold uppercase tracking-wider">
+                  <th className="py-4 px-2 w-[6%]">No</th>
                   <th className="py-4 px-6 w-[35%]">
                     <div className="flex items-center gap-3">
                       <input 
                         type="checkbox"
                         className="w-4 h-4 rounded text-indigo-600 border-gray-300 focus:ring-indigo-500 cursor-pointer"
-                        disabled={matrix.length === 0}
+                        disabled={matrix.length === 0 || !access.canEdit}
                         checked={isGlobalAllChecked}
                         onChange={(e) => handleGlobalAllChange(e.target.checked)}
                       />
@@ -434,30 +505,29 @@ const ModuleAuthority = () => {
                   ))}
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-50">
+              <tbody className="divide-y divide-slate-100 bg-white">
               {!selectedRoleId ? (
                 <tr>
-                  <td colSpan="8" className="py-12 text-center text-gray-400 text-sm">
+                  <td colSpan="10" className="py-12 text-center text-gray-400 text-sm">
                     Silakan pilih Role terlebih dahulu untuk memuat matriks data.
                   </td>
                 </tr>
               ) : loading ? (
                 <tr>
-                  <td colSpan="8" className="py-12 text-center text-gray-400 text-sm animate-pulse">
+                  <td colSpan="10" className="py-12 text-center text-gray-400 text-sm animate-pulse">
                     Memuat matriks hak akses...
                   </td>
                 </tr>
-              ) : matrix.length === 0 ? (
+              ) : rootItems.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="py-12 text-center text-gray-400 text-sm">
+                  <td colSpan="10" className="py-12 text-center text-gray-400 text-sm">
                     Data tidak ditemukan. Silakan cek database menu Anda.
                   </td>
                 </tr>
               ) : (
-                /* FILTER UTAMA: Hanya render menu yang bertindak sebagai ROOT (Menu Utama) */
-                matrix
-                  .filter(item => !item.parent_id || item.parent_id === 1 || item.parent_id === '1' || item.parent_id === 0 || item.parent_id === '0')
-                  .map(item => <RenderRow key={item.menu_id} item={item} />)
+                rootItems.map(item => (
+                  <RenderRow key={item.menu_id} item={item} no={rowNumbers[item.menu_id]} />
+                ))
               )}
             </tbody>
             </table>
@@ -465,7 +535,7 @@ const ModuleAuthority = () => {
         </div>
 
         {/* Floating Button Simpan */}
-        {selectedRoleId && !loading && (
+        {selectedRoleId && !loading && access.canEdit && (
           <button 
             onClick={handleSave}
             className="fixed right-6 bottom-20 bg-emerald-500 hover:bg-emerald-600 text-white p-3.5 rounded-lg shadow-xl transition transform hover:-translate-y-0.5 z-50 flex items-center justify-center"

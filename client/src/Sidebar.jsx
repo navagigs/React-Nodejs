@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import * as Icons from 'lucide-react';
 import { MENU_URL_ACCESS_BY_ROLE } from './Api';
+import { useAppConfig } from './useAppConfig';
+import { logNavigation } from './activityLog';
 
 // --- FUNGSI UTAMA UNTUK CEK NORMALISASI PATH AGAR PASTI COCOK ---
 const checkActivePath = (currentPath, menuUrl) => {
@@ -41,7 +43,8 @@ const NavMenuItem = ({ item, depth = 0, activePath, openDropdowns, handleParentC
   // Logika Block Aktif Penuh: Berlaku jika dirinya aktif ATAU anak di dalamnya aktif
   const isBlockActive = isDirectlyActive || isParentOfActive;
 
-  const isOpen = !!openDropdowns[item.menu_id] || isParentOfActive;
+  const manual = openDropdowns[item.menu_id];
+const isOpen = manual === undefined ? isParentOfActive : manual;
   const MenuIcon = Icons[menuIconStr] || (hasChildren ? Icons.Folder : Icons.File);
 
   // Padding menjorok ke dalam disesuaikan tingkat kedalamannya agar rapi
@@ -52,7 +55,7 @@ const NavMenuItem = ({ item, depth = 0, activePath, openDropdowns, handleParentC
       <div className="w-full">
         {/* Tombol Menu Utama yang Mempunyai Dropdown */}
         <button 
-          onClick={() => handleParentClick(item.menu_id)}
+          onClick={() => handleParentClick(item.menu_id, isOpen)}
           style={{ paddingLeft }}
           className={`w-full flex items-center justify-between py-3 px-4 rounded-xl cursor-pointer transition-all duration-200 select-none ${
             isBlockActive
@@ -90,7 +93,7 @@ const NavMenuItem = ({ item, depth = 0, activePath, openDropdowns, handleParentC
   // Render Untuk Single Menu / Sub-Menu Paling Ujung
   return (
     <div 
-      onClick={() => handleItemClick(menuUrl)}
+      onClick={() => handleItemClick(menuUrl, menuTitle)}
       style={{ paddingLeft }}
       className={`flex items-center gap-3 py-3 px-4 rounded-xl cursor-pointer transition-all duration-200 ${
         isDirectlyActive
@@ -112,9 +115,11 @@ const NavMenuItem = ({ item, depth = 0, activePath, openDropdowns, handleParentC
 const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { config, logoUrl } = useAppConfig();
+  const titleParts = (config.site_title || 'Panel Admin').trim().split(/\s+/);
 
   const [menus, setMenus] = useState([]); 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !!localStorage.getItem('role_id'));
   const [openDropdowns, setOpenDropdowns] = useState({}); 
 
   useEffect(() => {
@@ -122,7 +127,6 @@ const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
 
     if (!currentRoleId) {
       console.error("Role ID tidak ditemukan.");
-      setLoading(false);
       return;
     }
 
@@ -138,15 +142,18 @@ const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
       });
   }, []);
 
-  const handleParentClick = (menuId) => {
+  const handleParentClick = (menuId, currentlyOpen = false) => {
     setOpenDropdowns(prev => ({
       ...prev,
-      [menuId]: !prev[menuId]
+      [menuId]: !currentlyOpen
     }));
   };
 
-  const handleItemClick = (path) => {
-    if (path) navigate(path);
+  const handleItemClick = (path, label) => {
+    if (path) {
+      logNavigation(path, label);
+      navigate(path);
+    }
     if (window.innerWidth < 768) setIsMobileOpen(false); 
   };
 
@@ -167,10 +174,17 @@ const Sidebar = ({ isMobileOpen, setIsMobileOpen }) => {
 
         {/* Logo Header Sidebar */}
         <div className="h-16 flex items-center gap-3 px-6 border-b border-slate-100">
-            <div className="p-2 bg-indigo-600 rounded-xl text-white shadow-md shadow-blue-600/20">
-              <Icons.ShieldCheck className="w-5 h-5" />
-            </div>
-            <h1 className="text-xl font-black text-slate-800 tracking-tight">Admin<span className="font-light text-blue-600">Panel</span></h1>
+            {logoUrl ? (
+              <img src={logoUrl} alt="Logo" className="w-9 h-9 object-contain rounded-lg" />
+            ) : (
+              <div className="p-2 bg-indigo-600 rounded-xl text-white shadow-md shadow-blue-600/20">
+                <Icons.ShieldCheck className="w-5 h-5" />
+              </div>
+            )}
+            <h1 className="text-xl font-black text-slate-800 tracking-tight truncate">
+              {titleParts[0]}
+              <span className="font-light text-blue-600">{titleParts.length > 1 ? ' ' + titleParts.slice(1).join(' ') : ''}</span>
+            </h1>
         </div>
 
         {/* MODIFIKASI: Navigasi List dengan Scrollbar Cantik & Halus */}

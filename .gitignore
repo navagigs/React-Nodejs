@@ -1,0 +1,5 @@
+/server/config.php
+/server/php-server.log
+.DS_Store
+node_modules/
+/server/backups/*.sql

@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { MENU_URL } from '../Api';
 import * as Icons from 'lucide-react';
+import TableExports from '../TableExports';
+import PageSizeSelect from '../PageSizeSelect';
+import { useTablePagination } from '../tablePagination';
+import { useMenuPermission } from '../permissions';
+import FeaturePageHeader from '../components/layout/FeaturePageHeader';
 
 const MenuManagement = () => {
+  const access = useMenuPermission('/hak-akses/menu');
   const [menus, setMenus] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-
-  // --- PAGINATION STATE ---
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(5);
 
   // Layout State
   const [expandedParentIds, setExpandedParentIds] = useState([]);
@@ -49,6 +51,7 @@ const MenuManagement = () => {
 
   // --- FETCH DATA FROM API ---
   const fetchMenus = async () => {
+    if (!access.canView) return;
     try {
       const response = await fetch(MENU_URL);
       if (!response.ok) throw new Error('Gagal mengambil data dari server');
@@ -62,7 +65,7 @@ const MenuManagement = () => {
 
   useEffect(() => {
     fetchMenus();
-  }, []);
+  }, [access.canView]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -121,11 +124,39 @@ const MenuManagement = () => {
 
   const filteredMenus = menus.filter(parent => checkMenuMatchRecursive(parent, searchTerm.toLowerCase()));
 
-  // --- PAGINATION LOGIC ---
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = filteredMenus.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(filteredMenus.length / itemsPerPage);
+  const {
+    currentPage,
+    setCurrentPage,
+    itemsPerPage,
+    setItemsPerPage,
+    currentItems,
+    indexOfFirstItem,
+    indexOfLastItem,
+    totalPages
+  } = useTablePagination(filteredMenus);
+
+  const flattenMenuRows = (items, depth = 0, startNo = indexOfFirstItem + 1) => {
+    let no = startNo;
+    return items.flatMap((item) => {
+      const rowNo = no++;
+      const children = flattenMenuRows(item.subs || [], depth + 1, no);
+      no += children.length;
+      return [
+        {
+          ...item,
+          no: rowNo,
+          id: item.menu_id || '-',
+          level: depth + 1,
+          title: `${'  '.repeat(depth)}${item.title || '-'}`,
+          url: item.url ? `/${item.url}` : '-',
+          description: item.description || '-',
+          order: item.menu_order ?? '-',
+          status: String(item.is_active) === '1' ? 'Aktif' : 'Off'
+        },
+        ...children
+      ];
+    });
+  };
 
   const paginate = (pageNumber) => {
     if (pageNumber >= 1 && pageNumber <= totalPages) {
@@ -186,6 +217,7 @@ const MenuManagement = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isEditing ? !access.canEdit : !access.canCreate) return;
     if (!currentMenu.title.trim()) {
       showNotification("Nama menu wajib diisi!", "error");
       return;
@@ -229,6 +261,7 @@ const MenuManagement = () => {
   };
 
   const handleDelete = async (id) => {
+    if (!access.canDelete) return;
     if (window.confirm("Apakah Anda yakin ingin menghapus menu ini beserta seluruh sub-menu di bawahnya?")) {
       try {
         const response = await fetch(`${MENU_URL}/${id}`, { method: 'DELETE' });
@@ -245,6 +278,7 @@ const MenuManagement = () => {
 
   // --- MODAL CONTROL ---
   const handleAddNew = () => {
+    if (!access.canCreate) return;
     setIsEditing(false);
     setCurrentMenu({
       menu_id: '', parent_id: '', title: '', url: '', description: '', menu_order: 1, type: '2',
@@ -256,7 +290,8 @@ const MenuManagement = () => {
     setIsModalOpen(true);
   };
 
- const handleAddSub = (parentItem) => {
+  const handleAddSub = (parentItem) => {
+  if (!access.canCreate) return;
   setIsEditing(false);
   const nextOrder = parentItem.subs && parentItem.subs.length > 0 
     ? Math.max(...parentItem.subs.map(s => s.menu_order)) + 1 
@@ -279,6 +314,7 @@ const MenuManagement = () => {
 };
 
   const handleEdit = (item) => {
+  if (!access.canEdit) return;
   setIsEditing(true);
   
   // Helper kecil untuk normalisasi integer 1 atau 0
@@ -313,12 +349,15 @@ const MenuManagement = () => {
   const labelStyle = "block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5";
 
   // --- REKURSIF KOMPONEN: LIST TREE VIEW ---
-  const renderMenuTreeRecursive = (menuList, depth = 0) => {
+  const renderMenuTreeRecursive = (menuList, depth = 0, startNo = indexOfFirstItem + 1) => {
+    let no = startNo;
     return (
       <div className={`flex flex-col ${depth > 0 ? 'ml-8 pl-4 border-l-2 border-indigo-100 border-dashed my-1' : 'gap-3'}`}>
         {menuList.map((item) => {
           const isExpanded = expandedParentIds.includes(item.menu_id);
           const hasChildren = item.subs && item.subs.length > 0;
+          const rowNo = no++;
+          if (hasChildren) no += flattenMenuRows(item.subs || []).length;
 
           return (
             <div key={item.menu_id} className="flex flex-col">
@@ -326,15 +365,18 @@ const MenuManagement = () => {
                 depth === 0 ? 'bg-slate-50 border-slate-200/80 shadow-xs' : 'bg-white border-gray-100 hover:border-gray-200 shadow-2xs'
               }`}>
                 <div className="flex items-center gap-3 w-full md:w-5/12">
-                  <button
-                    type="button"
-                    onClick={() => hasChildren ? toggleExpand(item.menu_id) : handleAddSub(item)}
-                    className={`w-6 h-6 flex items-center justify-center rounded-md border text-xs font-bold font-mono transition-all ${
-                      hasChildren ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700' : 'bg-white border-gray-200 text-gray-400 hover:bg-gray-50'
-                    }`}
-                  >
-                    {hasChildren ? (isExpanded ? '−' : '＋') : '＋'}
-                  </button>
+                  <span className="w-6 h-6 flex items-center justify-center rounded-md bg-slate-100 text-[11px] font-bold text-slate-500 shrink-0">{rowNo}</span>
+                  {(hasChildren || access.canCreate) && (
+                    <button
+                      type="button"
+                      onClick={() => hasChildren ? toggleExpand(item.menu_id) : handleAddSub(item)}
+                      className={`w-6 h-6 flex items-center justify-center rounded-md border text-xs font-bold font-mono transition-all ${
+                        hasChildren ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700' : 'bg-white border-gray-200 text-gray-400 hover:bg-gray-50'
+                      }`}
+                    >
+                      {hasChildren ? (isExpanded ? '−' : '＋') : '＋'}
+                    </button>
+                  )}
 
                   <div className="flex items-center gap-2 truncate">
                     {(() => {
@@ -367,20 +409,26 @@ const MenuManagement = () => {
                   </div>
 
                   <div className="flex items-center gap-0.5">
-                    <button onClick={() => handleAddSub(item)} className="text-emerald-600 hover:text-white hover:bg-emerald-600 text-xs font-semibold bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 transition mr-1">
-                      ➕ Sub
-                    </button>
-                    <button onClick={() => handleEdit(item)} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition" title="Edit">
-                      <Icons.Pencil className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => handleDelete(item.menu_id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Delete">
-                      <Icons.Trash2 className="w-4 h-4" />
-                    </button>
+                    {access.canCreate && (
+                      <button onClick={() => handleAddSub(item)} className="text-emerald-600 hover:text-white hover:bg-emerald-600 text-xs font-semibold bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100 transition mr-1">
+                        ➕ Sub
+                      </button>
+                    )}
+                    {access.canEdit && (
+                      <button onClick={() => handleEdit(item)} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition" title="Ubah">
+                        <Icons.Pencil className="w-4 h-4" />
+                      </button>
+                    )}
+                    {access.canDelete && (
+                      <button onClick={() => handleDelete(item.menu_id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Hapus">
+                        <Icons.Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {hasChildren && isExpanded && renderMenuTreeRecursive(item.subs, depth + 1)}
+              {hasChildren && isExpanded && renderMenuTreeRecursive(item.subs, depth + 1, rowNo + 1)}
             </div>
           );
         })}
@@ -388,9 +436,48 @@ const MenuManagement = () => {
     );
   };
 
+  if (!access.canView) {
+    return (
+      <div className="app-card app-card-padded text-center text-sm text-slate-500">
+        Anda tidak memiliki hak akses untuk melihat data ini.
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-7xl mx-auto">
-      <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 sm:p-8">
+    <div className="app-page">
+      <FeaturePageHeader
+        title="Manajemen Menu"
+        subtitle="Kelola menu dan hak akses"
+        actions={
+          <>
+            <TableExports
+              menuUrl="/hak-akses/menu"
+              title="Manajemen Menu"
+              filename="data-menu"
+              columns={[
+                { label: 'Nomor', key: 'no', width: 1 },
+                { label: 'Nama Menu', key: 'title', width: 4 },
+                { label: 'URL', key: 'url', width: 3 },
+                { label: 'Keterangan', key: 'description', width: 4 },
+                { label: 'Urutan', key: 'order', width: 1 },
+                { label: 'Status', key: 'status', width: 2 }
+              ]}
+              rows={flattenMenuRows(currentItems)}
+            />
+            {access.canCreate && (
+              <button
+                onClick={handleAddNew}
+                className="app-button app-button-primary"
+              >
+                <Icons.Plus className="w-4 h-4" />
+                Tambah
+              </button>
+            )}
+          </>
+        }
+      />
+      <div className="app-page">
         
         {/* Notifikasi */}
         {notification.show && (
@@ -404,34 +491,23 @@ const MenuManagement = () => {
           </div>
         )}
 
-        {/* --- HEADER --- */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 border-b border-gray-100 pb-6">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Manajemen Modul & Menu</h2>
-            <p className="text-sm text-gray-500 mt-1">Pengaturan menu dinamis multi-level tak terbatas berdasarkan relasi parent-child.</p>
-          </div>
-          <button 
-              onClick={handleAddNew}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition flex items-center gap-2 shadow-lg shadow-indigo-500/20"
-          >
-              <Icons.Plus className="w-4 h-4" />
-              Tambah
-          </button>
-        </div>
+         {/* --- SEARCH BAR --- */}
+         <div className="app-card app-card-padded">
+           <h2 className="mb-4 text-sm font-bold text-slate-800">Filter Menu</h2>
+           <div className="flex flex-col md:flex-row md:flex-wrap items-center gap-4">
+             <div className="relative w-full flex-1">
+                 <input 
+                     type="text" 
+                     placeholder="Cari menu berdasarkan nama atau keterangan..." 
+                     className="app-input pl-9"
+                     value={searchTerm}
+                     onChange={(e) => setSearchTerm(e.target.value)}
+                 />
+                 <Icons.Search className="w-5 h-5 text-gray-400 absolute left-3 top-2.5 pointer-events-none" />
+             </div>
+           </div>
+         </div>
 
-        {/* --- SEARCH BAR --- */}
-         <div className="mb-6 bg-gray-50/50 p-4 rounded-xl border border-gray-100">
-            <div className="relative w-full">
-                <input 
-                    type="text" 
-                    placeholder="Cari menu berdasarkan nama atau keterangan..." 
-                    className="pl-10 pr-4 py-2.5 w-full bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                />
-                <Icons.Search className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" />
-            </div>
-        </div>
 
         {/* --- RECURSIVE TREE CONTAINER --- */}
         <div className="flex flex-col gap-3 min-h-[150px]">
@@ -446,15 +522,13 @@ const MenuManagement = () => {
 
         {/* --- PAGINATION --- */}
         {filteredMenus.length > 0 && (
-          <div className="flex flex-col sm:flex-row justify-between items-center mt-6 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
-            <div className="text-sm text-gray-500">
-              Menampilkan Utama <span className="font-semibold text-gray-700">{indexOfFirstItem + 1}</span> sampai{' '}
-              <span className="font-semibold text-gray-700">
-                {indexOfLastItem > filteredMenus.length ? filteredMenus.length : indexOfLastItem}
-              </span>{' '}
-              dari <span className="font-semibold text-gray-700">{filteredMenus.length}</span> induk utama
+          <div className="flex flex-col sm:flex-row justify-between items-center mt-6 gap-4 app-pagination">
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+              <PageSizeSelect value={itemsPerPage} onChange={setItemsPerPage} />
+              <div className="text-sm text-gray-500"> 
+                dari <span className="font-semibold text-gray-700">{filteredMenus.length}</span> records
+              </div>
             </div>
-            
             <div className="flex items-center gap-1">
               <button
                 onClick={() => paginate(currentPage - 1)}
@@ -463,7 +537,7 @@ const MenuManagement = () => {
                   currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
                 }`}
               >
-                Previous
+                Sebelumnya
               </button>
               {Array.from({ length: totalPages }, (_, index) => (
                 <button
@@ -483,7 +557,7 @@ const MenuManagement = () => {
                   currentPage === totalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
                 }`}
               >
-                Next
+                Berikutnya
               </button>
             </div>
           </div>
@@ -523,13 +597,16 @@ const MenuManagement = () => {
                     {isDropdownOpen && (
                       <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden max-h-56 flex flex-col">
                         <div className="p-2 border-b border-gray-100 bg-gray-50/50">
-                          <input 
-                            type="text"
-                            placeholder="Cari induk menu..."
-                            value={searchDropdownQuery}
-                            onChange={(e) => setSearchDropdownQuery(e.target.value)}
-                            className="w-full border border-gray-200 rounded-lg p-1.5 text-xs outline-none focus:border-indigo-500 bg-white"
-                          />
+                          <div className="relative">
+                            <input 
+                              type="text"
+                              placeholder="Cari induk menu..."
+                              value={searchDropdownQuery}
+                              onChange={(e) => setSearchDropdownQuery(e.target.value)}
+                              className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-1.5 text-xs outline-none focus:border-indigo-500 bg-white placeholder-gray-400"
+                            />
+                            <Icons.Search className="w-4 h-4 text-gray-400 absolute left-3 top-2 pointer-events-none" />
+                          </div>
                         </div>
                         <div className="overflow-y-auto flex-1 text-xs">
                           <div 
@@ -585,10 +662,12 @@ const MenuManagement = () => {
                     <label className={labelStyle}>Icon</label>
                     <input type="text" name="icon" value={currentMenu.icon} onChange={handleInputChange} className={inputStyle} placeholder="contoh: Folder, User, Settings" />
                   </div>
-                  <div>
-                    <label className={labelStyle}>Urutan Tampil (Order)</label>
-                    <input type="number" name="menu_order" required value={currentMenu.menu_order} onChange={handleInputChange} className={inputStyle} />
-                  </div>
+                  {access.canEdit && (
+                    <div>
+                      <label className={labelStyle}>Urutan Tampil (Order)</label>
+                      <input type="number" name="menu_order" required value={currentMenu.menu_order} onChange={handleInputChange} className={inputStyle} />
+                    </div>
+                  )}
                   <div>
                     <label className={labelStyle}>Status Keaktifan</label>
                     <select name="is_active" value={currentMenu.is_active} onChange={handleInputChange} className="w-full border border-gray-200 bg-gray-50 rounded-lg px-4 py-2.5 text-sm focus:border-indigo-500 bg-white outline-none">
@@ -610,13 +689,13 @@ const MenuManagement = () => {
   </span>
   <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 text-center">
     {[
-      { key: 'is_view', label: 'View' },
-      { key: 'is_create', label: 'Create' },
-      { key: 'is_edit', label: 'Edit' },
-      { key: 'is_delete', label: 'Delete' },
-      { key: 'is_export', label: 'Export' },
-      { key: 'is_duplicate', label: 'Duplicate' },
-      { key: 'is_unlock', label: 'Unlock' }
+      { key: 'is_view', label: 'Lihat' },
+      { key: 'is_create', label: 'Tambah' },
+      { key: 'is_edit', label: 'Ubah' },
+      { key: 'is_delete', label: 'Hapus' },
+      { key: 'is_export', label: 'Ekspor' },
+      { key: 'is_duplicate', label: 'Duplikat' },
+      { key: 'is_unlock', label: 'Buka Kunci' }
     ].map((priv) => {
       // Evaluasi nilai boolean secara fleksibel (mendukung integer 1, string "1", atau boolean true)
       const isChecked = 
